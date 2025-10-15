@@ -2,13 +2,13 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.202.0',
+  cdkVersion: '2.219.0',
   defaultReleaseBranch: 'master',
   jsiiVersion: '~5.8.0',
   name: '@renovosolutions/cdk-library-aurora-native-backup',
   projenrcTs: true,
   repositoryUrl: 'https://github.com/RenovoSolutions/cdk-library-aurora-native-backup.git',
-  description: 'AWS CDK Construct Library to deploy Aurora Serverless Native Backup',
+  description: 'AWS CDK construct library for Aurora backup and restore using ECS on a schedule, storing backups in S3.',
   keywords: [
     'cdk',
     'aws-cdk',
@@ -21,11 +21,20 @@ const project = new awscdk.AwsCdkConstructLibrary({
   deps: [
     'cdk-ecr-deployment',
   ],
+  peerDeps: [
+    'constructs',
+    'aws-cdk-lib',
+  ],
   depsUpgrade: true,
   depsUpgradeOptions: {
     workflow: false,
     exclude: ['projen'],
   },
+  devDeps: [
+    '@types/jest',
+    'constructs',
+    'aws-cdk-lib',
+  ],
   gitignore: [
     'test/read*',
   ],

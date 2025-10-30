@@ -1,10 +1,11 @@
-FROM amazon/aws-cli:2.15.0
+FROM amazon/aws-cli:latest
 
 RUN yum update -y && \
     yum install -y \
         postgresql17 \
         shadow-utils \
-        amazon-efs-utils && \
+        amazon-efs-utils \
+        jq && \
     # Create user and directories
     groupadd -g 1000 backupuser && \
     useradd -m -s /bin/bash -u 1000 -g 1000 backupuser && \

@@ -17,23 +17,29 @@ import {
 import { Construct } from 'constructs';
 
 /**
- * Configuration for database user authentication.
+ * Database connection configuration for the Aurora backup service.
  */
-export interface AuroraBackupUser {
+export interface AuroraBackupConnectionProps {
   /**
    * The database username for backup operations.
-   * Must exist in the Aurora cluster with appropriate permissions.
-   *
+   * Must exist in the Aurora PostgreSQL database cluster with all required permissions on ALL databases to be backed up:
+   * - CONNECT to each database in the databaseNames array
+   * - USAGE on relevant schemas in each database
+   * - SELECT and USAGE on all current and future tables and sequences in each database
+   *   (To ensure the user automatically receives these permissions on new tables/sequences, use PostgreSQL's ALTER DEFAULT PRIVILEGES. For example:
+   *   ALTER DEFAULT PRIVILEGES IN SCHEMA your_schema GRANT SELECT, USAGE ON TABLES TO backup_user;
+   *   ALTER DEFAULT PRIVILEGES IN SCHEMA your_schema GRANT USAGE ON SEQUENCES TO backup_user;)
    * @example 'backup_user'
    */
   readonly username: string;
 
   /**
-   * The database name to backup.
+   * The database names to backup.
+   * The backup user must have appropriate permissions on all databases in this array.
    *
-   * @default Uses the cluster's default database
+   * @default ['postgres'] - Uses the cluster's default database
    */
-  readonly databaseName?: string;
+  readonly databaseNames?: string[];
 
   /**
    * Secrets Manager secret containing the database password.
@@ -43,11 +49,11 @@ export interface AuroraBackupUser {
 }
 
 /**
- * Configuration properties for Aurora PostgreSQL native backup service.
+ * Infrastructure configuration properties for Aurora PostgreSQL native backup service.
  */
 export interface AuroraNativeBackupServiceProps {
   /**
-   * The Aurora PostgreSQL cluster to backup.
+   * The Aurora PostgreSQL database cluster to backup.
    */
   readonly cluster: rds.IDatabaseCluster;
 
@@ -57,23 +63,15 @@ export interface AuroraNativeBackupServiceProps {
   readonly vpc: ec2.IVpc;
 
   /**
-   * Optionally provide an existing S3 bucket for backup storage.
-   * If not provided, one will be created.
+   * Name for the S3 backup bucket that will be created by the construct.
+   * The bucket will be configured with appropriate settings for backup storage.
    */
-  readonly backupBucket?: s3.IBucket;
+  readonly backupBucketName: string;
 
   /**
-   * Name for the S3 backup bucket (only used if backupBucket is not provided).
-   * If not specified, a default name will be generated.
-   *
-   * @default `aurora-backup-${account}-${region}`
+   * Database connection configuration.
    */
-  readonly backupBucketName?: string;
-
-  /**
-   * Database user configuration for authentication.
-   */
-  readonly databaseUser: AuroraBackupUser;
+  readonly connection: AuroraBackupConnectionProps;
 
   /**
    * Backup retention period in days.
@@ -104,15 +102,8 @@ export interface AuroraNativeBackupServiceProps {
   readonly memoryLimitMiB?: number;
 
   /**
-   * VPC subnets where the backup service should run.
-   *
-   * @default Private subnets with egress
-   */
-  readonly subnets?: ec2.SubnetSelection;
-
-  /**
    * ECR repository containing the backup Docker image.
-   * The image will be pulled using the imageUri from the AuroraBackupRepository construct.
+   * The image will be pulled using the imageUri from the `AuroraBackupRepository` construct.
    */
   readonly ecrRepository: ecr.IRepository;
 }
@@ -120,17 +111,20 @@ export interface AuroraNativeBackupServiceProps {
 /**
  * A construct for Aurora PostgreSQL native backup service.
  *
- * Creates a scheduled ECS Fargate service that performs PostgreSQL backups using pg_dump.
- * Backups are temporarily stored on EFS and sent to S3. All infrastructure resources.
+ * Creates a scheduled ECS Fargate service that performs PostgreSQL backups using `pg_dump`.
+ * Backups are written to EFS and then copied to S3. They are removed from EFS after the
+ * configured `retentionDays`.
  * The S3 bucket for backups can be provided or will be created automatically.
  *
  * @example
  * const backupService = new AuroraNativeBackupService(this, 'BackupService', {
- *   cluster: myAuroraCluster,
+ *   cluster: dbCluster,
  *   vpc: vpc,
- *   databaseUser: {
+ *   backupBucketName: 'my-aurora-backups',
+ *   ecrRepository: backupRepository.repository,
+ *   connection: {
  *     username: 'backup_user',
- *     databaseName: 'production',
+ *     databaseNames: ['production', 'analytics', 'reporting'],
  *     passwordSecret: backupUserSecret,
  *   },
  * });
@@ -144,7 +138,7 @@ export class AuroraNativeBackupService extends Construct {
   /**
    * The ECS cluster running the backup service.
    */
-  public readonly cluster: ecs.ICluster;
+  public readonly ecsCluster: ecs.ICluster;
 
   /**
    * The ECS task definition for the backup container.
@@ -162,9 +156,14 @@ export class AuroraNativeBackupService extends Construct {
   public readonly taskRole: iam.Role;
 
   /**
+   * The IAM execution role for ECS tasks
+   */
+  public readonly executionRole: iam.Role;
+
+  /**
    * The S3 bucket for backup storage.
    */
-  public readonly backupBucket?: s3.IBucket;
+  public readonly backupBucket: s3.Bucket;
 
   /**
    * The EFS file system for backup storage.
@@ -177,8 +176,8 @@ export class AuroraNativeBackupService extends Construct {
   public readonly accessPoint: efs.IAccessPoint;
 
   /**
-   * The constructor for the AuroraNativeBackupService.
-   * This creates a scheduled ECS Fargate service that performs PostgreSQL backups using pg_dump.
+   * The constructor for the `AuroraNativeBackupService`.
+   * This creates a scheduled ECS Fargate service that performs PostgreSQL backups using `pg_dump`.
    * It also creates the ECS cluster, task definition, IAM roles, EFS file system, and S3 bucket for backup storage.
    * @param scope The scope in which to create this Construct. Normally this is a stack.
    * @param id The Construct ID of the backup service.
@@ -190,14 +189,12 @@ export class AuroraNativeBackupService extends Construct {
     const {
       cluster: dbCluster,
       vpc,
-      backupBucket,
       backupBucketName,
-      databaseUser,
+      connection,
       retentionDays = 7,
       backupSchedule = '0 5 * * ? *',
       cpu = 256,
       memoryLimitMiB = 512,
-      subnets = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
       ecrRepository,
     } = props;
 
@@ -231,9 +228,8 @@ export class AuroraNativeBackupService extends Construct {
       encrypted: true,
       lifecyclePolicy: efs.LifecyclePolicy.AFTER_14_DAYS,
       performanceMode: efs.PerformanceMode.GENERAL_PURPOSE,
-      throughputMode: efs.ThroughputMode.BURSTING,
-      removalPolicy: RemovalPolicy.DESTROY,
-      vpcSubnets: subnets,
+      throughputMode: efs.ThroughputMode.ELASTIC,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
     this.fileSystem = fileSystem;
     this.accessPoint = fileSystem.addAccessPoint('BackupAccessPoint', {
@@ -251,37 +247,35 @@ export class AuroraNativeBackupService extends Construct {
 
     const stack = Stack.of(this);
 
-    if (!backupBucket) {
-      this.backupBucket = new s3.Bucket(this, 'BackupBucket', {
-        bucketName: backupBucketName ?? `aurora-backup-${stack.account}-${stack.region}`,
-        removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
-        blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-        encryption: s3.BucketEncryption.S3_MANAGED,
-        lifecycleRules: [
-          {
-            id: 'DeleteOldBackups',
-            enabled: true,
-            expiration: Duration.days(retentionDays),
-          },
-        ],
-      });
-    } else {
-      this.backupBucket = backupBucket;
-    }
+    // Create S3 bucket for backup storage
+    this.backupBucket = new s3.Bucket(this, 'BackupBucket', {
+      bucketName: backupBucketName,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
+      blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        {
+          id: 'DeleteOldBackups',
+          enabled: true,
+          expiration: Duration.days(retentionDays),
+        },
+      ],
+    });
 
     // Create CloudWatch log group
     const logGroup = new logs.LogGroup(this, 'BackupLogGroup', {
       logGroupName: `/ecs/aurora-backup/${dbCluster.clusterIdentifier}`,
       retention: logs.RetentionDays.TWO_YEARS,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
 
     // Prepare environment variables
+    const databaseNames = connection.databaseNames ?? ['postgres'];
     const taskEnvironment: Record<string, string> = {
       DB_HOST: dbCluster.clusterEndpoint.hostname,
       DB_PORT: dbCluster.clusterEndpoint.port.toString(),
-      DB_NAME: databaseUser.databaseName ?? 'postgres',
-      DB_USER: databaseUser.username,
+      DB_NAMES: JSON.stringify(databaseNames),
+      DB_USER: connection.username,
       BACKUP_ROOT: '/mnt/aurora-backups',
       AWS_REGION: stack.region,
       S3_BUCKET: this.backupBucket.bucketName,
@@ -290,18 +284,18 @@ export class AuroraNativeBackupService extends Construct {
     };
 
     const containerSecrets = {
-      DB_PASSWORD: ecs.Secret.fromSecretsManager(databaseUser.passwordSecret, 'password'),
+      DB_PASSWORD: ecs.Secret.fromSecretsManager(connection.passwordSecret, 'password'),
     };
 
-    // Create scheduled task
+    // Create scheduled task using image options approach
     this.scheduledTask = new ecsPatterns.ScheduledFargateTask(this, 'BackupScheduledTask', {
       vpc,
       scheduledFargateTaskImageOptions: {
         image: containerImage,
-        cpu,
-        memoryLimitMiB,
         environment: taskEnvironment,
         secrets: containerSecrets,
+        cpu,
+        memoryLimitMiB,
         logDriver: ecs.LogDrivers.awsLogs({
           streamPrefix: 'backup',
           logGroup,
@@ -309,12 +303,19 @@ export class AuroraNativeBackupService extends Construct {
       },
       schedule: events.Schedule.expression(scheduleExpression),
       securityGroups: [this.backupSecurityGroup],
-      subnetSelection: subnets,
     });
 
-    this.cluster = this.scheduledTask.cluster;
+    // Get the task definition created by the scheduled task
     this.taskDefinition = this.scheduledTask.taskDefinition;
 
+    // Set the runtime platform to ARM64 to match the Docker image architecture
+    const cfnTaskDefinition = this.taskDefinition.node.defaultChild as ecs.CfnTaskDefinition;
+    cfnTaskDefinition.runtimePlatform = {
+      cpuArchitecture: 'ARM64',
+      operatingSystemFamily: 'LINUX',
+    };
+
+    // Add EFS volume and mount point to the created task definition
     this.taskDefinition.addVolume({
       name: 'AuroraBackupData',
       efsVolumeConfiguration: {
@@ -327,24 +328,23 @@ export class AuroraNativeBackupService extends Construct {
       },
     });
 
-    const container = this.taskDefinition.defaultContainer;
-    if (container) {
-      container.addMountPoints({
-        containerPath: '/mnt/aurora-backups',
-        sourceVolume: 'AuroraBackupData',
-        readOnly: false,
-      });
-    }
+    // Add mount points to the container
+    const container = this.taskDefinition.defaultContainer!;
+    container.addMountPoints({
+      containerPath: '/mnt/aurora-backups',
+      sourceVolume: 'AuroraBackupData',
+      readOnly: false,
+    });
 
-    this.scheduledTask.node.addDependency(this.accessPoint);
+    this.ecsCluster = this.scheduledTask.cluster;
+    this.scheduledTask.node.addDependency(this.fileSystem.mountTargetsAvailable);
 
     this.taskRole = this.taskDefinition.taskRole as iam.Role;
+    this.executionRole = this.taskDefinition.executionRole as iam.Role;
 
     // Grant permissions for secrets access
-    databaseUser.passwordSecret.grantRead(this.taskRole);
-    if (this.taskDefinition.executionRole) {
-      databaseUser.passwordSecret.grantRead(this.taskDefinition.executionRole);
-    }
+    connection.passwordSecret.grantRead(this.taskRole);
+    connection.passwordSecret.grantRead(this.executionRole);
 
     // S3 permissions for backup storage
     this.backupBucket.grantReadWrite(this.taskRole);
@@ -359,29 +359,21 @@ export class AuroraNativeBackupService extends Construct {
     );
 
     // ECR permissions for execution role (for pulling images)
-    if (this.taskDefinition.executionRole) {
-      const executionRole = this.taskDefinition.executionRole as iam.Role;
-
-      // Grant ECR permissions for cross-account image pulling
-      // GetAuthorizationToken must be granted on all resources
-      executionRole.addToPolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: ['ecr:GetAuthorizationToken'],
-          resources: ['*'],
-        }),
-      );
-
-      ecrRepository.grantPull(executionRole);
-
-      executionRole.addToPolicy(
-        new iam.PolicyStatement({
-          effect: iam.Effect.ALLOW,
-          actions: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
-          resources: [this.accessPoint.accessPointArn],
-        }),
-      );
-    }
+    this.executionRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['ecr:GetAuthorizationToken'],
+        resources: ['*'],
+      }),
+    );
+    ecrRepository.grantPull(this.executionRole);
+    this.executionRole.addToPolicy(
+      new iam.PolicyStatement({
+        effect: iam.Effect.ALLOW,
+        actions: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
+        resources: [this.accessPoint.accessPointArn],
+      }),
+    );
   }
 
   /**

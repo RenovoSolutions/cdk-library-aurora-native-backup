@@ -33,7 +33,6 @@ test/read*
 /test-reports/
 junit.xml
 /coverage/
-!/.github/workflows/build.yml
 /dist/changelog.md
 /dist/version.txt
 !/.github/workflows/release.yml

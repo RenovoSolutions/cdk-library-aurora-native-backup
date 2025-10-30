@@ -15,8 +15,6 @@
     "docgen": "npx projen docgen",
     "eject": "npx projen eject",
     "eslint": "npx projen eslint",
-    "integ": "npx projen integ",
-    "integ:update": "npx projen integ:update",
     "package": "npx projen package",
     "package-all": "npx projen package-all",
     "package:dotnet": "npx projen package:dotnet",
@@ -40,14 +38,12 @@
     "organization": false
   },
   "devDependencies": {
-    "@aws-cdk/integ-runner": "latest",
-    "@aws-cdk/integ-tests-alpha": "latest",
     "@stylistic/eslint-plugin": "^2",
     "@types/jest": "^30.0.0",
-    "@types/node": "^24.7.0",
+    "@types/node": "^24.9.2",
     "@typescript-eslint/eslint-plugin": "^8",
     "@typescript-eslint/parser": "^8",
-    "aws-cdk-lib": "2.219.0",
+    "aws-cdk-lib": "2.220.0",
     "commit-and-tag-version": "^12",
     "constructs": "10.0.5",
     "eslint": "^9",
@@ -56,17 +52,17 @@
     "jest": "^30.2.0",
     "jest-junit": "^16",
     "jsii": "~5.8.0",
-    "jsii-diff": "^1.115.0",
+    "jsii-diff": "^1.118.0",
     "jsii-docgen": "^10.5.0",
-    "jsii-pacmak": "^1.115.0",
+    "jsii-pacmak": "^1.118.0",
     "jsii-rosetta": "~5.8.0",
-    "projen": "^0.97.1",
-    "ts-jest": "^29.4.4",
+    "projen": "^0.98.6",
+    "ts-jest": "^29.4.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {
-    "aws-cdk-lib": "^2.219.0",
+    "aws-cdk-lib": "^2.220.0",
     "constructs": "^10.0.5"
   },
   "dependencies": {

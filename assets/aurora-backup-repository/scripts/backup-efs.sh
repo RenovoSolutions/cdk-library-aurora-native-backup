@@ -1,4 +1,3 @@
-
 #!/bin/bash
 set -euo pipefail
 
@@ -6,7 +5,7 @@ LOG_PREFIX="[AURORA-BACKUP-EFS]"
 
 # Required environment variables
 : "${DB_HOST:?DB_HOST required}"
-: "${DB_NAME:?DB_NAME required}"
+: "${DB_NAMES:?DB_NAMES required}"
 : "${DB_USER:?DB_USER required}"
 : "${DB_PASSWORD:?DB_PASSWORD required}"
 : "${AWS_REGION:?AWS_REGION required}"
@@ -51,16 +50,40 @@ perform_backup() {
   fi
   cleanup_work_dir
   mkdir -p "$WORK_DIR" && chmod 750 "$WORK_DIR"
-  log "pg_dump: $DB_HOST:$DB_PORT/$DB_NAME -> $WORK_DIR"
-  if ! PGPASSWORD="$DB_PASSWORD" pg_dump \
-    "host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$DB_NAME sslmode=require" \
-    --format=directory --file="$WORK_DIR" --compress=9 --clean --if-exists --verbose --no-password; then
-    log_error "pg_dump failed"; cleanup_work_dir; exit 1;
+  
+  # Parse database names from JSON array
+  local db_names_array
+  if ! db_names_array=$(echo "$DB_NAMES" | jq -r '.[]' 2>/dev/null); then
+    log_error "Failed to parse DB_NAMES JSON array: $DB_NAMES"
+    exit 1
   fi
+  
+  # Backup each database
+  while IFS= read -r db_name; do
+    [[ -z "$db_name" ]] && continue
+    local db_backup_dir="${WORK_DIR}/${db_name}"
+    mkdir -p "$db_backup_dir" && chmod 750 "$db_backup_dir"
+    
+    log "pg_dump: $DB_HOST:$DB_PORT/$db_name -> $db_backup_dir"
+    if ! PGPASSWORD="$DB_PASSWORD" pg_dump \
+      "host=$DB_HOST port=$DB_PORT user=$DB_USER dbname=$db_name sslmode=require" \
+      --format=directory --file="$db_backup_dir" --compress=9 --clean --if-exists --verbose --no-password; then
+      log_error "pg_dump failed for database: $db_name"; cleanup_work_dir; exit 1;
+    fi
+    
+    # Verify backup has content for this database
+    if [[ ! -f "${db_backup_dir}/toc.dat" ]]; then
+      log_error "Backup validation failed for $db_name: missing toc.dat file"
+      cleanup_work_dir
+      exit 1
+    fi
+    
+    log "Database backup completed: $db_name"
+  done <<< "$db_names_array"
 
-  # Verify backup has content before finalizing
-  if [[ ! -f "${WORK_DIR}/toc.dat" ]]; then
-    log_error "Backup validation failed: missing toc.dat file"
+  # Verify at least one database was backed up
+  if [[ -z "$(find "$WORK_DIR" -name "toc.dat" -type f 2>/dev/null)" ]]; then
+    log_error "Backup validation failed: no successful database backups found"
     cleanup_work_dir
     exit 1
   fi
@@ -80,14 +103,25 @@ sync_to_s3() {
     log_error "S3_BUCKET is required for backup. Aborting."
     exit 1
   fi
-  local s3_path="s3://${S3_BUCKET}/${S3_PREFIX:-backups}/${CLUSTER_IDENTIFIER}/${backup_dir##*/}/"
-  log "Syncing to $s3_path"
-  if aws s3 sync "$backup_dir/" "$s3_path" --region "$AWS_REGION"; then
-    log "S3 sync done: $s3_path"
-    rm -rf "$backup_dir" && log "Removed local backup dir"
-  else
-    log_error "S3 sync failed"; return 1;
-  fi
+  
+  # Sync each database directory separately to maintain proper S3 structure
+  for db_backup_dir in "$backup_dir"/*/; do
+    [[ -d "$db_backup_dir" ]] || continue
+    local db_name="${db_backup_dir%/}"
+    db_name="${db_name##*/}"
+    
+    local s3_path="s3://${S3_BUCKET}/${S3_PREFIX:-backups}/${CLUSTER_IDENTIFIER}/${db_name}/${backup_dir##*/}/"
+    log "Syncing database $db_name to $s3_path"
+    
+    if aws s3 sync "$db_backup_dir" "$s3_path" --region "$AWS_REGION"; then
+      log "S3 sync done for $db_name: $s3_path"
+    else
+      log_error "S3 sync failed for database: $db_name"; return 1;
+    fi
+  done
+  
+  # Remove local backup directory after successful sync
+  rm -rf "$backup_dir" && log "Removed local backup dir"
 }
 
 main() {

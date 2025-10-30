@@ -1,16 +1,16 @@
 # cdk-library-aurora-native-backup
 
-A CDK construct library that creates and manages Docker images for Aurora PostgreSQL native backups using `pg_dump`. 
+A CDK construct library that creates and manages Docker images for Aurora PostgreSQL native backups using `pg_dump`.
 The resulting images are designed for use with Amazon ECS Fargate for scalable, serverless backup operations.
-
 
 ## Features
 
+- **Multi-Database Support**: Back up multiple databases from the same Aurora cluster in a single service
 - **Pre-built Docker Image**: Amazon Linux 2023 base with PostgreSQL 17 client tools and AWS CLI v2
 - **ECR Repository Management**: Automatically creates and manages ECR repositories with security best practices
 - **Complete Backup Service**: Ready-to-use ECS Fargate service for scheduled Aurora backups
 - **EFS and S3 Support**: Built-in support for backing up to EFS with S3 sync
-- **Comprehensive Backup**: Uses `pg_dump` directory format with maximum compression for efficient storage
+- **Comprehensive Backup**: Uses `pg_dump` directory format with for efficient storage and simplified restore
 - **Production Ready**: Includes proper error handling, logging, and cleanup mechanisms
 - **Secure Authentication**: Uses AWS Secrets Manager for database password management
 
@@ -18,33 +18,74 @@ The resulting images are designed for use with Amazon ECS Fargate for scalable, 
 
 See [API](API.md)
 
+## Interface Structure
+
+The library provides two main constructs, each with its own configuration interface:
+
+- **`AuroraBackupRepository`** (`AuroraBackupRepositoryProps`): Manages the ECR repository and Docker image for backups.
+- **`AuroraNativeBackupService`** (`AuroraNativeBackupServiceProps`): Manages the backup service infrastructure (VPC, Aurora cluster, S3 bucket, compute resources, etc.), and uses:
+  - **`AuroraBackupConnectionProps`**: For database connection settings (username, database names array, password secret).
+
+This separation allows for cleaner organization of image/repository management, connection credentials, and infrastructure settings.
+
+## Multi-Database Support
+
+The library supports backing up multiple databases from the same Aurora PostgreSQL cluster in a single backup service. Simply provide an array of database names in the `databaseNames` property (defaults to `['postgres']` if not specified). Each database will be backed up separately and stored in its own S3 folder structure.
+
+## Database User Setup
+
+Create a dedicated database user with read-only backup permissions on **ALL databases** to be backed up.
+
+For PostgreSQL 14+ (recommended), use the built-in `pg_read_all_data` role for comprehensive read access:
+
+```sql
+-- Connect to each database and grant permissions
+\c your_database_1;
+GRANT CONNECT ON DATABASE your_database_1 TO backup_user;
+GRANT pg_read_all_data TO backup_user;
+
+-- Repeat for each additional database
+\c your_database_2;
+GRANT CONNECT ON DATABASE your_database_2 TO backup_user;
+GRANT pg_read_all_data TO backup_user;
+```
+
+The `pg_read_all_data` role automatically provides:
+
+- `SELECT` on all tables and views
+- `USAGE` on all schemas
+- `SELECT` and `USAGE` on all sequences
+- Access to future objects without requiring additional grants
+
+**Note**: This library requires PostgreSQL 14 or newer for the `pg_read_all_data` role.
+
 ## Shortcomings
 
-- The backup service currently only supports password-based authentication with Secrets Manager
+- The backup service requires password-based authentication (no IAM database authentication for now)
 - The backup container runs as a scheduled task, not continuously, so it cannot capture incremental changes
-- Custom backup scripts are not currently supported, only the built-in pg_dump functionality
-
-## License
-
-This project is licensed under the Apache License, Version 2.0 - see the [LICENSE](LICENSE) file for details.
+- Custom backup scripts are not currently supported, only the built-in `pg_dump` functionality
+- When backing up multiple databases, if one database backup fails, the task continues with the remaining databases but the overall task does not fail - individual database backup failures must be monitored through CloudWatch logs
 
 ## Examples
 
-This construct requires some dependencies to instantiate:
+### Prerequisites
 
-- A stack with a definite environment (account and region)
-- A VPC where the backup service will run
-- An Aurora PostgreSQL cluster to backup
-- A Secrets Manager secret containing database credentials
+To use this construct, you must have:
 
+- An AWS CDK stack with a defined environment (account and region)
+- An existing VPC for the backup service
+- An existing Aurora PostgreSQL database cluster
+- An AWS Secrets Manager secret containing database credentials (recommended)
+- A database user with the required backup permissions (see above)
 
 ### Complete Backup Service (Recommended)
 
 For most use cases, use the `AuroraNativeBackupService` which provides a complete, ready-to-use backup solution:
 
 #### TypeScript
+
 ```typescript
-import { Stack, StackProps, aws_ec2 as ec2, aws_rds as rds, aws_s3 as s3, aws_secretsmanager as secretsmanager } from 'aws-cdk-lib';
+import { Stack, StackProps, aws_ec2 as ec2, aws_rds as rds, aws_secretsmanager as secretsmanager } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { AuroraNativeBackupService, AuroraBackupRepository } from '@renovosolutions/cdk-library-aurora-native-backup';
 
@@ -52,18 +93,12 @@ export class BackupServiceStack extends Stack {
   constructor(scope: Construct, id: string, props: StackProps) {
     super(scope, id, props);
 
-    // Your existing Aurora cluster and VPC
+    // Your existing Aurora PostgreSQL database cluster and VPC
     const vpc = ec2.Vpc.fromLookup(this, 'Vpc', { isDefault: true });
-    const cluster = rds.DatabaseCluster.fromDatabaseClusterAttributes(this, 'Cluster', {
+    const dbCluster = rds.DatabaseCluster.fromDatabaseClusterAttributes(this, 'DbCluster', {
       clusterIdentifier: 'my-production-cluster',
       clusterEndpointAddress: 'cluster.xyz.region.rds.amazonaws.com',
       port: 5432,
-    });
-
-    // S3 bucket for backup storage
-    const backupBucket = new s3.Bucket(this, 'BackupBucket', {
-      encryption: s3.BucketEncryption.S3_MANAGED,
-      versioned: true,
     });
 
     // First create the backup repository
@@ -71,32 +106,39 @@ export class BackupServiceStack extends Stack {
       repositoryName: 'aurora-postgres-backup',
     });
 
+    // Secret containing the backup user's password
+    const backupUserSecret = secretsmanager.Secret.fromSecretAttributes(this, 'BackupUserSecret', {
+      secretArn: 'arn:aws:secretsmanager:region:account:secret:backup-user-password-abc123',
+    });
+
     // Create the complete backup service
     const backupService = new AuroraNativeBackupService(this, 'BackupService', {
-      cluster,
+      cluster: dbCluster,
       vpc,
-      backupBucket,
+      backupBucketName: 'my-aurora-production-backups',
       ecrRepository: backupRepository.repository,
-      databaseUser: {
+      connection: {
         username: 'backup_user',
-        databaseName: 'production',
+        databaseNames: ['production', 'analytics', 'reporting'],
+        passwordSecret: backupUserSecret,
       },
       retentionDays: 30,
       backupSchedule: '0 2 * * *', // Daily at 2 AM UTC
-      cpu: 1024,
-      memoryLimitMiB: 2048,
+      cpu: 1024, // Override default of 256
+      memoryLimitMiB: 2048, // Override default of 512
     });
   }
 }
 ```
 
 #### Python
+
 ```python
 from aws_cdk import (
   Stack,
   aws_ec2 as ec2,
   aws_rds as rds,
-  aws_s3 as s3
+  aws_secretsmanager as secretsmanager
 )
 from constructs import Construct
 from cdk_library_aurora_native_backup import AuroraNativeBackupService, AuroraBackupRepository
@@ -105,18 +147,12 @@ class BackupServiceStack(Stack):
   def __init__(self, scope: Construct, id: str, **kwargs):
     super().__init__(scope, id, **kwargs)
 
-    # Your existing Aurora cluster and VPC
+    # Your existing Aurora PostgreSQL database cluster and VPC
     vpc = ec2.Vpc.from_lookup(self, "Vpc", is_default=True)
-    cluster = rds.DatabaseCluster.from_database_cluster_attributes(self, "Cluster",
+    db_cluster = rds.DatabaseCluster.from_database_cluster_attributes(self, "DbCluster",
       cluster_identifier="my-production-cluster",
       cluster_endpoint_address="cluster.xyz.region.rds.amazonaws.com",
       port=5432
-    )
-
-    # S3 bucket for backup storage
-    backup_bucket = s3.Bucket(self, "BackupBucket",
-      encryption=s3.BucketEncryption.S3_MANAGED,
-      versioned=True
     )
 
     # First create the backup repository
@@ -124,53 +160,56 @@ class BackupServiceStack(Stack):
       repository_name="aurora-postgres-backup"
     )
 
+    # Secret containing the backup user's password
+    backup_user_secret = secretsmanager.Secret.from_secret_attributes(self, "BackupUserSecret",
+      secret_arn="arn:aws:secretsmanager:region:account:secret:backup-user-password-abc123"
+    )
+
     # Create the complete backup service
     backup_service = AuroraNativeBackupService(self, "BackupService",
-      cluster=cluster,
+      cluster=db_cluster,
       vpc=vpc,
-      backup_bucket=backup_bucket,
+      backup_bucket_name="my-aurora-production-backups",
       ecr_repository=backup_repository.repository,
-      database_user={
+      connection={
         "username": "backup_user",
-        "database_name": "production"
-        # password_secret will be created and managed by the construct
+        "database_names": ["production", "analytics", "reporting"],
+        "password_secret": backup_user_secret
       },
       retention_days=30,
       backup_schedule="0 2 * * *",  # Daily at 2 AM UTC
-      cpu=1024,
-      memory_limit_mi_b=2048
+      cpu=1024,  # Override default of 256
+      memory_limit_mi_b=2048  # Override default of 512
     )
-
-    # Access the generated secret if needed:
-    # backup_user_secret = backup_service.backup_user_secret
 ```
-
-
 
 ## Environment Variables
 
-The backup container requires these environment variables:
+All environment variables used by the backup container are set automatically by the constructs. You do not need to set them manually.
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DB_HOST` | Aurora cluster endpoint | ✅ |
-| `DB_NAME` | Database name to backup | ✅ |
-| `DB_USER` | Database username | ✅ |
-| `DB_PASSWORD` | Database password | ✅ |
-| `AWS_REGION` | AWS region | ✅ |
-| `DB_PORT` | Database port (default: 5432) | ❌ |
-| `BACKUP_ROOT` | Backup directory (default: /mnt/aurora-backups) | ❌ |
-| `S3_BUCKET` | S3 bucket for backup sync | ✅ |
-| `S3_PREFIX` | S3 prefix (default: backups) | ❌ |
-| `CLUSTER_IDENTIFIER` | Cluster ID for S3 organization (**required**) | ✅ |
+| Environment Variable   | Description                                               | CDK Prop / Source                        |
+|-----------------------|-----------------------------------------------------------|------------------------------------------|
+| `DB_HOST`             | Aurora PostgreSQL database cluster endpoint               | `cluster.clusterEndpoint.hostname`       |
+| `DB_NAMES`            | JSON array of database names to backup                    | `connection.databaseNames`               |
+| `DB_USER`             | Database username                                         | `connection.username`                    |
+| `DB_PASSWORD`         | Database password                                         | `connection.passwordSecret`     |
+| `AWS_REGION`          | AWS region                                                | `Stack.region`                           |
+| `CLUSTER_IDENTIFIER`  | Aurora PostgreSQL database cluster ID for S3 organization | `cluster.clusterIdentifier`              |
+| `DB_PORT`             | Database port (default: 5432)                             | `cluster.clusterEndpoint.port`           |
+| `BACKUP_ROOT`         | Backup directory (default: /mnt/aurora-backups)           | (internal default)                       |
+| `S3_BUCKET`           | S3 bucket for backup sync                                 | `backupBucketName`                       |
+| `S3_PREFIX`           | S3 prefix (default: backups)                              | (internal default)                       |
 
 ## Backup Process
 
 1. **Validation**: Checks AWS credentials and creates backup directories
-2. **Database Backup**: Uses `pg_dump --format=directory` with maximum compression
-3. **Verification**: Validates backup contains `toc.dat` file
-4. **S3 Sync**: Syncs backup to S3 bucket (required)
-5. **Cleanup**: Removes local backup after successful S3 sync
+2. **Database Backup**: For each database in the `DB_NAMES` array:
+   - Uses `pg_dump --format=directory` with maximum compression
+   - Creates separate backup directory per database with date stamp
+   - If one database backup fails, continues with remaining databases
+3. **Verification**: Validates each backup contains `toc.dat` file
+4. **S3 Sync**: Syncs each database backup to S3 bucket under separate database folders
+5. **Cleanup**: Removes local backups after successful S3 sync
 
 ## Security Considerations
 
@@ -182,42 +221,119 @@ The backup container requires these environment variables:
 
 ## Backup Storage Structure
 
-```
+Local EFS structure (per database):
+
+```text
 /mnt/aurora-backups/
-└── YYYY-MM-DD/
-    ├── toc.dat                 # PostgreSQL table of contents
-    ├── ####.dat.gz            # Compressed table data files
-    └── ####.dat.gz            # Additional data files
+├── production/
+│   └── YYYY-MM-DD/
+│       ├── toc.dat                # PostgreSQL table of contents
+│       ├── ####.dat.gz            # Compressed table data files
+│       └── ####.dat.gz            # Additional data files
+├── analytics/
+│   └── YYYY-MM-DD/
+│       ├── toc.dat
+│       └── ####.dat.gz
+└── reporting/
+    └── YYYY-MM-DD/
+        ├── toc.dat
+        └── ####.dat.gz
 ```
 
 S3 structure:
-```
+
+```text
 s3://my-backup-bucket/
 └── backups/
     └── {CLUSTER_IDENTIFIER}/
-        └── YYYY-MM-DD/
-            ├── toc.dat
-            └── ####.dat.gz
+        ├── production/
+        │   └── YYYY-MM-DD/
+        │       ├── toc.dat
+        │       └── ####.dat.gz
+        ├── analytics/
+        │   └── YYYY-MM-DD/
+        │       ├── toc.dat
+        │       └── ####.dat.gz
+        └── reporting/
+            └── YYYY-MM-DD/
+                ├── toc.dat
+                └── ####.dat.gz
 ```
 
 ## Restoration
 
-Use `pg_restore` with the backup directory:
+Backups are stored in your configured S3 bucket under paths organized by database:
+
+```text
+s3://my-backup-bucket/backups/{CLUSTER_IDENTIFIER}/{DATABASE_NAME}/YYYY-MM-DD/
+```
+
+To restore a specific database, first download the folder for the desired date/database from S3 to your local machine or server. You can use the AWS CLI:
 
 ```bash
-# Full database restore
+# Download a specific database backup
+aws s3 cp --recursive s3://my-backup-bucket/backups/{CLUSTER_IDENTIFIER}/production/YYYY-MM-DD/ /path/to/backup/directory/
+```
+
+Then use `pg_restore` with the downloaded backup directory:
+
+## Example: Full database restore
+
+```bash
 pg_restore -h target-host -U username -d target_db -v -C /path/to/backup/directory/
+```
 
-# List backup contents
+## Example: List backup contents
+
+```bash
 pg_restore --list /path/to/backup/directory/
+```
 
-# Selective table restore
+## Example: Selective table restore
+
+```bash
 pg_restore -h target-host -U username -d target_db -v -t table_name /path/to/backup/directory/
 ```
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines and submit pull requests to our GitHub repository.
+Contributions are welcome! Please follow these guidelines to help us maintain and improve the project:
+
+### Code Structure and Interfaces
+
+- The main user-facing interfaces are:
+  - `AuroraBackupRepositoryProps` in `src/aurora-backup-repository.ts`
+  - `AuroraNativeBackupServiceProps` and `AuroraBackupConnectionProps` in `src/aurora-native-backup-service.ts`
+- All constructs and their configuration interfaces are defined in the `src/` directory.
+
+### Code Generation and Project Tasks
+
+- This project uses [projen](https://github.com/projen/projen) for project management and code generation.
+- If you make changes to the project configuration (`.projenrc.ts`), run:
+
+  ```sh
+  npx projen
+  ```
+
+  This will regenerate all managed files, including `package.json` and other configuration files.
+
+### Building and Testing
+
+- To build the project and run all tests, use:
+
+  ```sh
+  yarn build
+  ```
+  
+  This will compile the code, run unit tests, and ensure everything is up to date.
+
+### API Documentation
+
+- The API reference (`API.md`) is auto-generated. If you change public interfaces or JSDoc comments, regenerate it with:
+
+  ```sh
+  npx projen docgen
+  ```
 
 ## License
 

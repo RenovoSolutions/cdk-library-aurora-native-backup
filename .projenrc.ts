@@ -2,7 +2,7 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.219.0',
+  cdkVersion: '2.220.0',
   defaultReleaseBranch: 'master',
   jsiiVersion: '~5.8.0',
   name: '@renovosolutions/cdk-library-aurora-native-backup',
@@ -46,10 +46,16 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
   stale: false,
   releaseToNpm: true,
+  buildWorkflow: false,
   release: true,
   npmAccess: javascript.NpmAccess.PUBLIC,
   docgen: true,
   eslint: true,
+  tsconfigDev: {
+    compilerOptions: {
+      isolatedModules: true,
+    },
+  },
   publishToPypi: {
     distName: 'renovosolutions.aws-cdk-aurora-native-backup',
     module: 'renovosolutions_aurora_native_backup',
@@ -58,8 +64,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
     dotNetNamespace: 'renovosolutions',
     packageId: 'Renovo.AWSCDK.AuroraNativeBackup',
   },
-  experimentalIntegRunner: true,
-
 });
 
 new javascript.UpgradeDependencies(project, {

@@ -26,21 +26,22 @@ export interface AuroraBackupRepositoryProps {
  * A construct that creates and manages a Docker image for Aurora PostgreSQL native backups.
  *
  * Creates an ECR repository and builds a Docker image containing PostgreSQL 17 client tools,
- * AWS CLI v2, and backup scripts. The image is designed for use with the AuroraNativeBackupService.
+ * AWS CLI v2, and backup scripts. The image is designed for use with the `AuroraNativeBackupService`
+ * construct in this same library.
  *
  * @example
  * const backupRepository = new AuroraBackupRepository(this, 'BackupRepository', {
  *   repositoryName: 'aurora-postgres-backup',
  * });
  *
- * // Then deploy the backup service (after the image is available)
  * const backupService = new AuroraNativeBackupService(this, 'BackupService', {
  *   cluster: myAuroraCluster,
  *   vpc: vpc,
+ *   backupBucketName: 'my-aurora-backups',
  *   ecrRepository: backupRepository.repository,
- *   databaseUser: {
+ *   connection: {
  *     username: 'backup_user',
- *     databaseName: 'production',
+ *     databaseNames: ['production'],
  *     passwordSecret: backupUserSecret,
  *   },
  * });
@@ -86,7 +87,7 @@ export class AuroraBackupRepository extends Construct {
     this.imageAsset = new DockerImageAsset(this, 'ImageAsset', {
       directory: path.resolve(__dirname, '..', 'assets', 'aurora-backup-repository'),
       file: 'Dockerfile',
-      platform: Platform.LINUX_AMD64,
+      platform: Platform.LINUX_ARM64,
       exclude: [
         '**/*.md',
         '**/node_modules',

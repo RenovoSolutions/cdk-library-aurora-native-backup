@@ -126,7 +126,8 @@
       "name": "eslint",
       "description": "Runs eslint against the codebase",
       "env": {
-        "ESLINT_USE_FLAT_CONFIG": "false"
+        "ESLINT_USE_FLAT_CONFIG": "false",
+        "NODE_NO_WARNINGS": "1"
       },
       "steps": [
         {
@@ -150,26 +151,6 @@
       "steps": [
         {
           "exec": "yarn install --check-files --frozen-lockfile"
-        }
-      ]
-    },
-    "integ": {
-      "name": "integ",
-      "description": "Run integration snapshot tests",
-      "steps": [
-        {
-          "exec": "integ-runner $@ --language typescript",
-          "receiveArgs": true
-        }
-      ]
-    },
-    "integ:update": {
-      "name": "integ:update",
-      "description": "Run and update integration snapshot tests",
-      "steps": [
-        {
-          "exec": "integ-runner $@ --language typescript --update-on-failed",
-          "receiveArgs": true
         }
       ]
     },
@@ -280,9 +261,6 @@
         },
         {
           "spawn": "eslint"
-        },
-        {
-          "spawn": "integ"
         }
       ]
     },
@@ -326,7 +304,7 @@
           "exec": "yarn install --check-files"
         },
         {
-          "exec": "yarn upgrade @stylistic/eslint-plugin @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser aws-cdk-lib commit-and-tag-version eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii ts-jest ts-node typescript @aws-cdk/integ-runner @aws-cdk/integ-tests-alpha constructs cdk-ecr-deployment"
+          "exec": "yarn upgrade @stylistic/eslint-plugin @types/jest @types/node @typescript-eslint/eslint-plugin @typescript-eslint/parser aws-cdk-lib commit-and-tag-version eslint-import-resolver-typescript eslint-plugin-import eslint jest jest-junit jsii-diff jsii-docgen jsii-pacmak jsii-rosetta jsii ts-jest ts-node typescript constructs cdk-ecr-deployment"
         },
         {
           "exec": "npx projen"

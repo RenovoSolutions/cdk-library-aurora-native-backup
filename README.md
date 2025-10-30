@@ -262,34 +262,71 @@ s3://my-backup-bucket/
 
 ## Restoration
 
-Backups are stored in your configured S3 bucket under paths organized by database:
+### Interactive Restore CLI (Recommended)
+
+This library includes an interactive TypeScript CLI that simplifies the restore process with auto-discovery and guided prompts:
+
+```bash
+npx ts-node restore_script/aurora-restore-cli.ts
+```
+
+**Features:**
+
+- **Auto-discovery**: Automatically finds S3 backup buckets using the `aurora_native_backup_bucket=true` tag
+- **Interactive selection**: Guided prompts for cluster, database, backup date, and tables
+- **Table-level restore**: Select specific tables or restore entire database
+- **Optimized downloads**: Only downloads required backup files
+- **Ready-to-run commands**: Generates and optionally executes `pg_restore` commands
+
+**Prerequisites:**
+
+- Node.js and TypeScript installed
+- AWS credentials configured (via AWS CLI, environment variables, or IAM role)
+- `pg_restore` command available in your PATH
+- Network access to target PostgreSQL database
+- Database user with restore permissions on target database:
+  - `CREATE` privilege (for creating tables, indexes, constraints)
+  - `INSERT` privilege (for loading data)
+  - `USAGE` and `CREATE` on schemas
+  - For full database restore: `CREATEDB` privilege or superuser role
+
+**Workflow:**
+
+1. **S3 Configuration**: Auto-discovers backup bucket or prompts for manual entry
+2. **Source Selection**: Choose cluster, database, and backup date
+3. **Table Selection**: Select specific tables or full database restore
+4. **Target Configuration**: Enter target database connection details
+5. **Execution**: Downloads backup files and generates restore command
+
+### Manual Restoration
+
+For advanced users or automation, backups are stored in S3 under organized paths:
 
 ```text
 s3://my-backup-bucket/backups/{CLUSTER_IDENTIFIER}/{DATABASE_NAME}/YYYY-MM-DD/
 ```
 
-To restore a specific database, first download the folder for the desired date/database from S3 to your local machine or server. You can use the AWS CLI:
+**Download backup files:**
 
 ```bash
-# Download a specific database backup
 aws s3 cp --recursive s3://my-backup-bucket/backups/{CLUSTER_IDENTIFIER}/production/YYYY-MM-DD/ /path/to/backup/directory/
 ```
 
-Then use `pg_restore` with the downloaded backup directory:
+**Restore commands:**
 
-## Example: Full database restore
+Full database restore:
 
 ```bash
 pg_restore -h target-host -U username -d target_db -v -C /path/to/backup/directory/
 ```
 
-## Example: List backup contents
+List backup contents:
 
 ```bash
 pg_restore --list /path/to/backup/directory/
 ```
 
-## Example: Selective table restore
+Selective table restore:
 
 ```bash
 pg_restore -h target-host -U username -d target_db -v -t table_name /path/to/backup/directory/

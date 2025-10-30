@@ -13,6 +13,7 @@ import {
   aws_s3 as s3,
   aws_secretsmanager as secretsmanager,
   RemovalPolicy,
+  Tags,
 } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 
@@ -261,6 +262,8 @@ export class AuroraNativeBackupService extends Construct {
         },
       ],
     });
+    // Tag the backup bucket for discovery by restore CLI
+    Tags.of(this.backupBucket).add('aurora_native_backup_bucket', 'true');
 
     // Create CloudWatch log group
     const logGroup = new logs.LogGroup(this, 'BackupLogGroup', {

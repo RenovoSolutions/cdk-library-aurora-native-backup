@@ -34,6 +34,9 @@ const project = new awscdk.AwsCdkConstructLibrary({
     '@types/jest',
     'constructs',
     'aws-cdk-lib',
+    '@aws-sdk/client-s3@^3.0.0',
+    'prompts@^2.4.0',
+    '@types/prompts@^2.4.0',
   ],
   gitignore: [
     'test/read*',

@@ -264,7 +264,7 @@ class AuroraRestoreCli {
   }
 
   private async generateRestoreCommand(): Promise<void> {
-    console.log('🔧 Executing restore process...');
+    console.log('🔧 Preparing restore command...');
     console.log('===============================\n');
 
     // Use /tmp for backup files organized by database with timestamp

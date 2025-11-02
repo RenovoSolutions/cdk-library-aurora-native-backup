@@ -23,13 +23,15 @@ import { Construct } from 'constructs';
 export interface AuroraBackupConnectionProps {
   /**
    * The database username for backup operations.
-   * Must exist in the Aurora PostgreSQL database cluster with all required permissions on ALL databases to be backed up:
-   * - CONNECT to each database in the databaseNames array
-   * - USAGE on relevant schemas in each database
-   * - SELECT and USAGE on all current and future tables and sequences in each database
-   *   (To ensure the user automatically receives these permissions on new tables/sequences, use PostgreSQL's ALTER DEFAULT PRIVILEGES. For example:
-   *   ALTER DEFAULT PRIVILEGES IN SCHEMA your_schema GRANT SELECT, USAGE ON TABLES TO backup_user;
-   *   ALTER DEFAULT PRIVILEGES IN SCHEMA your_schema GRANT USAGE ON SEQUENCES TO backup_user;)
+   * Must exist in the Aurora PostgreSQL database cluster with read permissions on ALL databases to be backed up.
+   *
+   * For PostgreSQL 14+ (recommended), use the pg_read_all_data role:
+   * - GRANT CONNECT ON DATABASE your_database TO backup_user;
+   * - GRANT pg_read_all_data TO backup_user;
+   *
+   * The pg_read_all_data role automatically provides SELECT on all tables/views, USAGE on schemas/sequences,
+   * and access to future objects without additional grants.
+   *
    * @example 'backup_user'
    */
   readonly username: string;
@@ -82,9 +84,12 @@ export interface AuroraNativeBackupServiceProps {
   readonly retentionDays?: number;
 
   /**
-   * Backup schedule cron expression (UTC).
+   * Backup schedule in EventBridge cron expression format (UTC).
+   * Can be either a cron fragment (e.g., '0 5 * * ? *') or a full expression (e.g., 'cron(0 5 * * ? *)').
+   * Also supports rate expressions (e.g., 'rate(1 day)').
    *
    * @default '0 5 * * ? *' - Daily at 5:00 AM UTC
+   * @see https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html
    */
   readonly backupSchedule?: string;
 
@@ -107,6 +112,13 @@ export interface AuroraNativeBackupServiceProps {
    * The image will be pulled using the imageUri from the `AuroraBackupRepository` construct.
    */
   readonly ecrRepository: ecr.IRepository;
+
+  /**
+   * Subnet selection for the backup task.
+   *
+   * @default { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS } - Uses private subnets with egress
+   */
+  readonly subnetSelection?: ec2.SubnetSelection;
 }
 
 /**
@@ -197,11 +209,12 @@ export class AuroraNativeBackupService extends Construct {
       cpu = 256,
       memoryLimitMiB = 512,
       ecrRepository,
+      subnetSelection = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
     } = props;
 
     const containerImage = ecs.ContainerImage.fromEcrRepository(ecrRepository, 'latest');
 
-    const scheduleExpression = this.normalizeScheduleExpression(backupSchedule);
+    const scheduleExpression = events.Schedule.expression(this.normalizeScheduleExpression(backupSchedule));
 
     this.backupSecurityGroup = new ec2.SecurityGroup(this, 'BackupSecurityGroup', {
       securityGroupName: 'AuroraBackupServiceSG',
@@ -293,6 +306,7 @@ export class AuroraNativeBackupService extends Construct {
     // Create scheduled task using image options approach
     this.scheduledTask = new ecsPatterns.ScheduledFargateTask(this, 'BackupScheduledTask', {
       vpc,
+      subnetSelection,
       scheduledFargateTaskImageOptions: {
         image: containerImage,
         environment: taskEnvironment,
@@ -304,7 +318,7 @@ export class AuroraNativeBackupService extends Construct {
           logGroup,
         }),
       },
-      schedule: events.Schedule.expression(scheduleExpression),
+      schedule: scheduleExpression,
       securityGroups: [this.backupSecurityGroup],
     });
 
@@ -345,8 +359,7 @@ export class AuroraNativeBackupService extends Construct {
     this.taskRole = this.taskDefinition.taskRole as iam.Role;
     this.executionRole = this.taskDefinition.executionRole as iam.Role;
 
-    // Grant permissions for secrets access
-    connection.passwordSecret.grantRead(this.taskRole);
+    // Grant permissions for secrets access (execution role retrieves secrets at container startup)
     connection.passwordSecret.grantRead(this.executionRole);
 
     // S3 permissions for backup storage
@@ -361,15 +374,7 @@ export class AuroraNativeBackupService extends Construct {
       }),
     );
 
-    // ECR permissions for execution role (for pulling images)
-    this.executionRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['ecr:GetAuthorizationToken'],
-        resources: ['*'],
-      }),
-    );
-    ecrRepository.grantPull(this.executionRole);
+    // EFS permissions for execution role
     this.executionRole.addToPolicy(
       new iam.PolicyStatement({
         effect: iam.Effect.ALLOW,

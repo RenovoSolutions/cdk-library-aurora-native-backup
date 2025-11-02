@@ -2,7 +2,7 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.220.0',
+  cdkVersion: '2.221.1',
   defaultReleaseBranch: 'master',
   jsiiVersion: '~5.8.0',
   name: '@renovosolutions/cdk-library-aurora-native-backup',
@@ -19,7 +19,7 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'projen',
   ],
   deps: [
-    'cdk-ecr-deployment',
+    'cdk-ecr-deployment@^4.0.3',
   ],
   peerDeps: [
     'constructs',
@@ -69,13 +69,14 @@ const project = new awscdk.AwsCdkConstructLibrary({
   },
 });
 
+// Ignore the release workflow file so it's not committed to git
+project.gitignore.exclude('!/.github/workflows/release.yml');
+project.gitignore.addPatterns('.github/workflows/release.yml');
+
 new javascript.UpgradeDependencies(project, {
   include: ['projen'],
   taskName: 'upgrade-projen',
-  workflow: true,
-  workflowOptions: {
-    schedule: javascript.UpgradeDependenciesSchedule.WEEKLY,
-  },
+  workflow: false,
 });
 
 project.synth();

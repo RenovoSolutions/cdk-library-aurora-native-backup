@@ -10,7 +10,7 @@ The resulting images are designed for use with Amazon ECS Fargate for scalable, 
 - **ECR Repository Management**: Automatically creates and manages ECR repositories with security best practices
 - **Complete Backup Service**: Ready-to-use ECS Fargate service for scheduled Aurora backups
 - **EFS and S3 Support**: Built-in support for backing up to EFS with S3 sync
-- **Comprehensive Backup**: Uses `pg_dump` directory format with for efficient storage and simplified restore
+- **Comprehensive Backup**: Uses `pg_dump` directory format for efficient storage and simplified restore
 - **Production Ready**: Includes proper error handling, logging, and cleanup mechanisms
 - **Secure Authentication**: Uses AWS Secrets Manager for database password management
 
@@ -190,21 +190,21 @@ All environment variables used by the backup container are set automatically by 
 | Environment Variable   | Description                                               | CDK Prop / Source                        |
 |-----------------------|-----------------------------------------------------------|------------------------------------------|
 | `DB_HOST`             | Aurora PostgreSQL database cluster endpoint               | `cluster.clusterEndpoint.hostname`       |
-| `DB_NAMES`            | JSON array of database names to backup                    | `connection.databaseNames`               |
+| `DB_NAMES`            | Array of database names to backup                         | `connection.databaseNames`               |
 | `DB_USER`             | Database username                                         | `connection.username`                    |
 | `DB_PASSWORD`         | Database password                                         | `connection.passwordSecret`     |
 | `AWS_REGION`          | AWS region                                                | `Stack.region`                           |
-| `CLUSTER_IDENTIFIER`  | Aurora PostgreSQL database cluster ID for S3 organization | `cluster.clusterIdentifier`              |
-| `DB_PORT`             | Database port (default: 5432)                             | `cluster.clusterEndpoint.port`           |
-| `BACKUP_ROOT`         | Backup directory (default: /mnt/aurora-backups)           | (internal default)                       |
+| `CLUSTER_IDENTIFIER`  | Cluster ID used as S3 path prefix (`backups/{CLUSTER_IDENTIFIER}/`) | `cluster.clusterIdentifier`              |
+| `DB_PORT`             | Database port (default: `5432`)                           | `cluster.clusterEndpoint.port`           |
+| `BACKUP_ROOT`         | Backup directory (default: `/mnt/aurora-backups`)         | (internal default)                       |
 | `S3_BUCKET`           | S3 bucket for backup sync                                 | `backupBucketName`                       |
-| `S3_PREFIX`           | S3 prefix (default: backups)                              | (internal default)                       |
+| `S3_PREFIX`           | S3 prefix (default: `backups`)                            | (internal default)                       |
 
 ## Backup Process
 
 1. **Validation**: Checks AWS credentials and creates backup directories
 2. **Database Backup**: For each database in the `DB_NAMES` array:
-   - Uses `pg_dump --format=directory` with maximum compression
+   - Uses `pg_dump --format=directory` with gzip compression (level 9) for each data file
    - Creates separate backup directory per database with date stamp
    - If one database backup fails, continues with remaining databases
 3. **Verification**: Validates each backup contains `toc.dat` file
@@ -290,6 +290,23 @@ npx ts-node restore_script/aurora-restore-cli.ts
   - `USAGE` and `CREATE` on schemas
   - For full database restore: `CREATEDB` privilege or superuser role
 
+**Setup and Execution:**
+
+First, install dependencies:
+
+```bash
+cd restore_script
+yarn install
+```
+
+Then run the interactive CLI:
+
+```bash
+npx ts-node aurora-restore-cli.ts
+```
+
+The CLI will guide you through selecting your backup source, target database, and specific tables to restore.
+
 **Workflow:**
 
 1. **S3 Configuration**: Auto-discovers backup bucket or prompts for manual entry
@@ -363,14 +380,6 @@ Contributions are welcome! Please follow these guidelines to help us maintain an
   ```
   
   This will compile the code, run unit tests, and ensure everything is up to date.
-
-### API Documentation
-
-- The API reference (`API.md`) is auto-generated. If you change public interfaces or JSDoc comments, regenerate it with:
-
-  ```sh
-  npx projen docgen
-  ```
 
 ## License
 

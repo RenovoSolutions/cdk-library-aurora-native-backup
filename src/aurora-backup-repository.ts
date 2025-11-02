@@ -98,7 +98,7 @@ export class AuroraBackupRepository extends Construct {
       ],
     });
 
-    // Deploy the image with the latest tag
+    // Push the image with the latest tag
     new ecrdeploy.ECRDeployment(this, 'PromoteImageToRepository', {
       src: new ecrdeploy.DockerImageName(this.imageAsset.imageUri),
       dest: new ecrdeploy.DockerImageName(`${this.repository.repositoryUri}:latest`),

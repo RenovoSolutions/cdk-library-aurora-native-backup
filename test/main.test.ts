@@ -160,6 +160,33 @@ describe('Aurora Native Backup Library', () => {
       });
     });
 
+    test('defaults to postgres database when databaseNames not specified', () => {
+      new AuroraNativeBackupService(stack, 'BackupService', {
+        cluster,
+        vpc,
+        backupBucketName: 'test-backups',
+        ecrRepository: repository,
+        connection: {
+          username: 'backup_user',
+          passwordSecret: secret,
+          // databaseNames not specified - should default to ['postgres']
+        },
+      });
+
+      const template = Template.fromStack(stack);
+
+      // Should default to postgres database
+      template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Environment: Match.arrayWith([
+              { Name: 'DB_NAMES', Value: '["postgres"]' },
+            ]),
+          }),
+        ]),
+      });
+    });
+
     test('supports custom resource sizing', () => {
       new AuroraNativeBackupService(stack, 'BackupService', {
         cluster,
@@ -263,6 +290,75 @@ describe('Aurora Native Backup Library', () => {
 
       // Should have policies for S3 and Secrets Manager access
       template.hasResource('AWS::IAM::Policy', Match.objectLike({}));
+    });
+
+    test('accepts cron fragment expressions', () => {
+      new AuroraNativeBackupService(stack, 'BackupService', {
+        cluster,
+        vpc,
+        backupBucketName: 'test-backups',
+        ecrRepository: repository,
+        connection: {
+          username: 'backup_user',
+          databaseNames: ['prod'],
+          passwordSecret: secret,
+        },
+        backupSchedule: '0 5 * * ? *',
+      });
+
+      const template = Template.fromStack(stack);
+
+      // Should wrap fragment in cron()
+      template.hasResourceProperties('AWS::Events::Rule', {
+        ScheduleExpression: 'cron(0 5 * * ? *)',
+        State: 'ENABLED',
+      });
+    });
+
+    test('accepts full EventBridge cron expressions', () => {
+      new AuroraNativeBackupService(stack, 'BackupService', {
+        cluster,
+        vpc,
+        backupBucketName: 'test-backups',
+        ecrRepository: repository,
+        connection: {
+          username: 'backup_user',
+          databaseNames: ['prod'],
+          passwordSecret: secret,
+        },
+        backupSchedule: 'cron(0 2 ? * SUN *)',
+      });
+
+      const template = Template.fromStack(stack);
+
+      // Should use expression as-is
+      template.hasResourceProperties('AWS::Events::Rule', {
+        ScheduleExpression: 'cron(0 2 ? * SUN *)',
+        State: 'ENABLED',
+      });
+    });
+
+    test('accepts rate expressions', () => {
+      new AuroraNativeBackupService(stack, 'BackupService', {
+        cluster,
+        vpc,
+        backupBucketName: 'test-backups',
+        ecrRepository: repository,
+        connection: {
+          username: 'backup_user',
+          databaseNames: ['prod'],
+          passwordSecret: secret,
+        },
+        backupSchedule: 'rate(1 day)',
+      });
+
+      const template = Template.fromStack(stack);
+
+      // Should use rate expression as-is
+      template.hasResourceProperties('AWS::Events::Rule', {
+        ScheduleExpression: 'rate(1 day)',
+        State: 'ENABLED',
+      });
     });
   });
 

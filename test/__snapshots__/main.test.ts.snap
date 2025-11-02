@@ -173,7 +173,7 @@ exports[`Aurora Native Backup Library AuroraBackupRepository matches CloudFormat
             [
               "docker://",
               {
-                "Fn::Sub": "\${AWS::AccountId}.dkr.ecr.\${AWS::Region}.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-\${AWS::AccountId}-\${AWS::Region}:faad108d55533abffd2351f5c2b8b6dcfbad831abbe5261ed51f5f9ee1d4765c",
+                "Fn::Sub": "\${AWS::AccountId}.dkr.ecr.\${AWS::Region}.\${AWS::URLSuffix}/cdk-hnb659fds-container-assets-\${AWS::AccountId}-\${AWS::Region}:cb1443670a74e59409602c7bbbb92b029bab9c4a67ddca8f1412c906ae2c4a29",
               },
             ],
           ],

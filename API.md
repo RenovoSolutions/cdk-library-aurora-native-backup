@@ -7,7 +7,8 @@
 A construct that creates and manages a Docker image for Aurora PostgreSQL native backups.
 
 Creates an ECR repository and builds a Docker image containing PostgreSQL 17 client tools,
-AWS CLI v2, and backup scripts. The image is designed for use with ECS Fargate.
+AWS CLI v2, and backup scripts. The image is designed for use with the `AuroraNativeBackupService`
+construct in this same library.
 
 *Example*
 
@@ -16,13 +17,15 @@ const backupRepository = new AuroraBackupRepository(this, 'BackupRepository', {
   repositoryName: 'aurora-postgres-backup',
 });
 
-// Use the image in ECS
-taskDefinition.addContainer('backup', {
-  image: backupRepository.containerImage(),
-  environment: {
-    DB_HOST: cluster.clusterEndpoint.hostname,
-    DB_NAME: 'myapp',
-    DB_USER: 'backup_user',
+const backupService = new AuroraNativeBackupService(this, 'BackupService', {
+  cluster: myAuroraCluster,
+  vpc: vpc,
+  backupBucketName: 'my-aurora-backups',
+  ecrRepository: backupRepository.repository,
+  connection: {
+    username: 'backup_user',
+    databaseNames: ['production'],
+    passwordSecret: backupUserSecret,
   },
 });
 ```
@@ -38,9 +41,9 @@ new AuroraBackupRepository(scope: Construct, id: string, props: AuroraBackupRepo
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.props">props</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepositoryProps">AuroraBackupRepositoryProps</a></code> | *No description.* |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | The scope in which to create this Construct. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.id">id</a></code> | <code>string</code> | The Construct ID of the backup repository. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.props">props</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepositoryProps">AuroraBackupRepositoryProps</a></code> | The properties for the backup repository, as defined in the `AuroraBackupRepositoryProps` interface. |
 
 ---
 
@@ -48,17 +51,25 @@ new AuroraBackupRepository(scope: Construct, id: string, props: AuroraBackupRepo
 
 - *Type:* constructs.Construct
 
+The scope in which to create this Construct.
+
+Normally this is a stack.
+
 ---
 
 ##### `id`<sup>Required</sup> <a name="id" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.id"></a>
 
 - *Type:* string
 
+The Construct ID of the backup repository.
+
 ---
 
 ##### `props`<sup>Required</sup> <a name="props" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.Initializer.parameter.props"></a>
 
 - *Type:* <a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepositoryProps">AuroraBackupRepositoryProps</a>
+
+The properties for the backup repository, as defined in the `AuroraBackupRepositoryProps` interface.
 
 ---
 
@@ -67,7 +78,6 @@ new AuroraBackupRepository(scope: Construct, id: string, props: AuroraBackupRepo
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.toString">toString</a></code> | Returns a string representation of this construct. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.containerImage">containerImage</a></code> | Returns an ECS container image for the backup Docker image. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.grantPull">grantPull</a></code> | Grants permissions to pull images from the ECR repository. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.grantPullPush">grantPullPush</a></code> | Grants full permissions to the ECR repository. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.grantPush">grantPush</a></code> | Grants permissions to push images to the ECR repository. |
@@ -81,14 +91,6 @@ public toString(): string
 ```
 
 Returns a string representation of this construct.
-
-##### `containerImage` <a name="containerImage" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.containerImage"></a>
-
-```typescript
-public containerImage(): ContainerImage
-```
-
-Returns an ECS container image for the backup Docker image.
 
 ##### `grantPull` <a name="grantPull" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.grantPull"></a>
 
@@ -183,9 +185,9 @@ Any object.
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.imageAsset">imageAsset</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAsset</code> | The Docker image asset containing the built backup image. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.imageUri">imageUri</a></code> | <code>string</code> | The complete URI of the Docker image for ECS task definitions. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.repository">repository</a></code> | <code>aws-cdk-lib.aws_ecr.IRepository</code> | The ECR repository containing the backup Docker image. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.imageAsset">imageAsset</a></code> | <code>aws-cdk-lib.aws_ecr_assets.DockerImageAsset</code> | The Docker image asset containing the built backup image. |
 
 ---
 
@@ -198,6 +200,18 @@ public readonly node: Node;
 - *Type:* constructs.Node
 
 The tree node.
+
+---
+
+##### `imageAsset`<sup>Required</sup> <a name="imageAsset" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.imageAsset"></a>
+
+```typescript
+public readonly imageAsset: DockerImageAsset;
+```
+
+- *Type:* aws-cdk-lib.aws_ecr_assets.DockerImageAsset
+
+The Docker image asset containing the built backup image.
 
 ---
 
@@ -227,39 +241,29 @@ The ECR repository containing the backup Docker image.
 
 ---
 
-##### `imageAsset`<sup>Optional</sup> <a name="imageAsset" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepository.property.imageAsset"></a>
-
-```typescript
-public readonly imageAsset: DockerImageAsset;
-```
-
-- *Type:* aws-cdk-lib.aws_ecr_assets.DockerImageAsset
-
-The Docker image asset containing the built backup image.
-
----
-
 
 ### AuroraNativeBackupService <a name="AuroraNativeBackupService" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService"></a>
 
 A construct for Aurora PostgreSQL native backup service.
 
-Creates a scheduled ECS Fargate service that performs PostgreSQL backups using pg_dump.
-Backups are stored on EFS and optionally synced to S3.
+Creates a scheduled ECS Fargate service that performs PostgreSQL backups using `pg_dump`.
+Backups are written to EFS and then copied to S3. They are removed from EFS after the
+configured `retentionDays`.
+The S3 bucket for backups can be provided or will be created automatically.
 
 *Example*
 
 ```typescript
 const backupService = new AuroraNativeBackupService(this, 'BackupService', {
-  cluster: myAuroraCluster,
+  cluster: dbCluster,
   vpc: vpc,
-  backupBucket: backupBucket,
-  databaseUser: {
+  backupBucketName: 'my-aurora-backups',
+  ecrRepository: backupRepository.repository,
+  connection: {
     username: 'backup_user',
-    databaseName: 'production',
+    databaseNames: ['production', 'analytics', 'reporting'],
     passwordSecret: backupUserSecret,
   },
-  containerImage: ecs.ContainerImage.fromRegistry('my-backup-image:latest'),
 });
 ```
 
@@ -274,9 +278,9 @@ new AuroraNativeBackupService(scope: Construct, id: string, props: AuroraNativeB
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | *No description.* |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.id">id</a></code> | <code>string</code> | *No description.* |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.props">props</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps">AuroraNativeBackupServiceProps</a></code> | *No description.* |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.scope">scope</a></code> | <code>constructs.Construct</code> | The scope in which to create this Construct. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.id">id</a></code> | <code>string</code> | The Construct ID of the backup service. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.props">props</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps">AuroraNativeBackupServiceProps</a></code> | The properties for the backup service, as defined in the `AuroraNativeBackupServiceProps` interface. |
 
 ---
 
@@ -284,17 +288,25 @@ new AuroraNativeBackupService(scope: Construct, id: string, props: AuroraNativeB
 
 - *Type:* constructs.Construct
 
+The scope in which to create this Construct.
+
+Normally this is a stack.
+
 ---
 
 ##### `id`<sup>Required</sup> <a name="id" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.id"></a>
 
 - *Type:* string
 
+The Construct ID of the backup service.
+
 ---
 
 ##### `props`<sup>Required</sup> <a name="props" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.Initializer.parameter.props"></a>
 
 - *Type:* <a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps">AuroraNativeBackupServiceProps</a>
+
+The properties for the backup service, as defined in the `AuroraNativeBackupServiceProps` interface.
 
 ---
 
@@ -303,7 +315,6 @@ new AuroraNativeBackupService(scope: Construct, id: string, props: AuroraNativeB
 | **Name** | **Description** |
 | --- | --- |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.toString">toString</a></code> | Returns a string representation of this construct. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.grantS3Access">grantS3Access</a></code> | Grants additional S3 permissions to the task role if needed. |
 
 ---
 
@@ -314,26 +325,6 @@ public toString(): string
 ```
 
 Returns a string representation of this construct.
-
-##### `grantS3Access` <a name="grantS3Access" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.grantS3Access"></a>
-
-```typescript
-public grantS3Access(bucket: IBucket, prefix?: string): void
-```
-
-Grants additional S3 permissions to the task role if needed.
-
-###### `bucket`<sup>Required</sup> <a name="bucket" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.grantS3Access.parameter.bucket"></a>
-
-- *Type:* aws-cdk-lib.aws_s3.IBucket
-
----
-
-###### `prefix`<sup>Optional</sup> <a name="prefix" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.grantS3Access.parameter.prefix"></a>
-
-- *Type:* string
-
----
 
 #### Static Functions <a name="Static Functions" id="Static Functions"></a>
 
@@ -381,14 +372,14 @@ Any object.
 | --- | --- | --- |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.node">node</a></code> | <code>constructs.Node</code> | The tree node. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.IAccessPoint</code> | The EFS access point for backup storage. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.cluster">cluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | The ECS cluster running the backup service. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.efsMountPath">efsMountPath</a></code> | <code>string</code> | The EFS mount path inside the container. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupBucket">backupBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | The S3 bucket for backup storage. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupSecurityGroup">backupSecurityGroup</a></code> | <code>aws-cdk-lib.aws_ec2.SecurityGroup</code> | The security group for the backup service. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | The ECS cluster running the backup service. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.executionRole">executionRole</a></code> | <code>aws-cdk-lib.aws_iam.Role</code> | The IAM execution role for ECS tasks. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.IFileSystem</code> | The EFS file system for backup storage. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.scheduledTask">scheduledTask</a></code> | <code>aws-cdk-lib.aws_ecs_patterns.ScheduledFargateTask</code> | The ECS scheduled task that runs the backup process. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.securityGroup">securityGroup</a></code> | <code>aws-cdk-lib.aws_ec2.SecurityGroup</code> | The security group for the backup service. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.taskDefinition">taskDefinition</a></code> | <code>aws-cdk-lib.aws_ecs.FargateTaskDefinition</code> | The ECS task definition for the backup container. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.taskRole">taskRole</a></code> | <code>aws-cdk-lib.aws_iam.Role</code> | The IAM role for backup tasks. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupBucket">backupBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | The S3 bucket for backup storage. |
 
 ---
 
@@ -416,10 +407,34 @@ The EFS access point for backup storage.
 
 ---
 
-##### `cluster`<sup>Required</sup> <a name="cluster" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.cluster"></a>
+##### `backupBucket`<sup>Required</sup> <a name="backupBucket" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupBucket"></a>
 
 ```typescript
-public readonly cluster: ICluster;
+public readonly backupBucket: Bucket;
+```
+
+- *Type:* aws-cdk-lib.aws_s3.Bucket
+
+The S3 bucket for backup storage.
+
+---
+
+##### `backupSecurityGroup`<sup>Required</sup> <a name="backupSecurityGroup" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupSecurityGroup"></a>
+
+```typescript
+public readonly backupSecurityGroup: SecurityGroup;
+```
+
+- *Type:* aws-cdk-lib.aws_ec2.SecurityGroup
+
+The security group for the backup service.
+
+---
+
+##### `ecsCluster`<sup>Required</sup> <a name="ecsCluster" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.ecsCluster"></a>
+
+```typescript
+public readonly ecsCluster: ICluster;
 ```
 
 - *Type:* aws-cdk-lib.aws_ecs.ICluster
@@ -428,15 +443,15 @@ The ECS cluster running the backup service.
 
 ---
 
-##### `efsMountPath`<sup>Required</sup> <a name="efsMountPath" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.efsMountPath"></a>
+##### `executionRole`<sup>Required</sup> <a name="executionRole" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.executionRole"></a>
 
 ```typescript
-public readonly efsMountPath: string;
+public readonly executionRole: Role;
 ```
 
-- *Type:* string
+- *Type:* aws-cdk-lib.aws_iam.Role
 
-The EFS mount path inside the container.
+The IAM execution role for ECS tasks.
 
 ---
 
@@ -464,18 +479,6 @@ The ECS scheduled task that runs the backup process.
 
 ---
 
-##### `securityGroup`<sup>Required</sup> <a name="securityGroup" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.securityGroup"></a>
-
-```typescript
-public readonly securityGroup: SecurityGroup;
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.SecurityGroup
-
-The security group for the backup service.
-
----
-
 ##### `taskDefinition`<sup>Required</sup> <a name="taskDefinition" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.taskDefinition"></a>
 
 ```typescript
@@ -500,20 +503,87 @@ The IAM role for backup tasks.
 
 ---
 
-##### `backupBucket`<sup>Optional</sup> <a name="backupBucket" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupBucket"></a>
+
+## Structs <a name="Structs" id="Structs"></a>
+
+### AuroraBackupConnectionProps <a name="AuroraBackupConnectionProps" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps"></a>
+
+Database connection configuration for the Aurora backup service.
+
+#### Initializer <a name="Initializer" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.Initializer"></a>
 
 ```typescript
-public readonly backupBucket: IBucket;
+import { AuroraBackupConnectionProps } from '@renovosolutions/cdk-library-aurora-native-backup'
+
+const auroraBackupConnectionProps: AuroraBackupConnectionProps = { ... }
 ```
 
-- *Type:* aws-cdk-lib.aws_s3.IBucket
+#### Properties <a name="Properties" id="Properties"></a>
 
-The S3 bucket for backup storage.
+| **Name** | **Type** | **Description** |
+| --- | --- | --- |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.passwordSecret">passwordSecret</a></code> | <code>aws-cdk-lib.aws_secretsmanager.ISecret</code> | Secrets Manager secret containing the database password. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.username">username</a></code> | <code>string</code> | The database username for backup operations. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.databaseNames">databaseNames</a></code> | <code>string[]</code> | The database names to backup. |
 
 ---
 
+##### `passwordSecret`<sup>Required</sup> <a name="passwordSecret" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.passwordSecret"></a>
 
-## Structs <a name="Structs" id="Structs"></a>
+```typescript
+public readonly passwordSecret: ISecret;
+```
+
+- *Type:* aws-cdk-lib.aws_secretsmanager.ISecret
+
+Secrets Manager secret containing the database password.
+
+Required for database authentication.
+
+---
+
+##### `username`<sup>Required</sup> <a name="username" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.username"></a>
+
+```typescript
+public readonly username: string;
+```
+
+- *Type:* string
+
+The database username for backup operations.
+
+Must exist in the Aurora PostgreSQL database cluster with read permissions on ALL databases to be backed up.
+
+For PostgreSQL 14+ (recommended), use the pg_read_all_data role:
+- GRANT CONNECT ON DATABASE your_database TO backup_user;
+- GRANT pg_read_all_data TO backup_user;
+
+The pg_read_all_data role automatically provides SELECT on all tables/views, USAGE on schemas/sequences,
+and access to future objects without additional grants.
+
+---
+
+*Example*
+
+```typescript
+'backup_user'
+```
+
+
+##### `databaseNames`<sup>Optional</sup> <a name="databaseNames" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps.property.databaseNames"></a>
+
+```typescript
+public readonly databaseNames: string[];
+```
+
+- *Type:* string[]
+- *Default:* ['postgres'] - Uses the cluster's default database
+
+The database names to backup.
+
+The backup user must have appropriate permissions on all databases in this array.
+
+---
 
 ### AuroraBackupRepositoryProps <a name="AuroraBackupRepositoryProps" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupRepositoryProps"></a>
 
@@ -542,7 +612,7 @@ public readonly repositoryName: string;
 ```
 
 - *Type:* string
-- *Default:* CloudFormation-generated name
+- *Default:* CDK-generated name
 
 The name of the ECR repository to create.
 
@@ -550,79 +620,9 @@ If not provided, CDK will generate a unique name based on the stack and construc
 
 ---
 
-### AuroraBackupUser <a name="AuroraBackupUser" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser"></a>
-
-Configuration for database user authentication.
-
-#### Initializer <a name="Initializer" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.Initializer"></a>
-
-```typescript
-import { AuroraBackupUser } from '@renovosolutions/cdk-library-aurora-native-backup'
-
-const auroraBackupUser: AuroraBackupUser = { ... }
-```
-
-#### Properties <a name="Properties" id="Properties"></a>
-
-| **Name** | **Type** | **Description** |
-| --- | --- | --- |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.username">username</a></code> | <code>string</code> | The database username for backup operations. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.databaseName">databaseName</a></code> | <code>string</code> | The database name to backup. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.passwordSecret">passwordSecret</a></code> | <code>aws-cdk-lib.aws_secretsmanager.ISecret</code> | Secrets Manager secret containing the database password. |
-
----
-
-##### `username`<sup>Required</sup> <a name="username" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.username"></a>
-
-```typescript
-public readonly username: string;
-```
-
-- *Type:* string
-
-The database username for backup operations.
-
-Must exist in the Aurora cluster with appropriate permissions.
-
----
-
-*Example*
-
-```typescript
-'backup_user'
-```
-
-
-##### `databaseName`<sup>Optional</sup> <a name="databaseName" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.databaseName"></a>
-
-```typescript
-public readonly databaseName: string;
-```
-
-- *Type:* string
-- *Default:* Uses the cluster's default database
-
-The database name to backup.
-
----
-
-##### `passwordSecret`<sup>Optional</sup> <a name="passwordSecret" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser.property.passwordSecret"></a>
-
-```typescript
-public readonly passwordSecret: ISecret;
-```
-
-- *Type:* aws-cdk-lib.aws_secretsmanager.ISecret
-
-Secrets Manager secret containing the database password.
-
-If not provided, IAM database authentication will be used.
-
----
-
 ### AuroraNativeBackupServiceProps <a name="AuroraNativeBackupServiceProps" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps"></a>
 
-Configuration properties for Aurora PostgreSQL native backup service.
+Infrastructure configuration properties for Aurora PostgreSQL native backup service.
 
 #### Initializer <a name="Initializer" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.Initializer"></a>
 
@@ -636,20 +636,30 @@ const auroraNativeBackupServiceProps: AuroraNativeBackupServiceProps = { ... }
 
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cluster">cluster</a></code> | <code>aws-cdk-lib.aws_rds.IDatabaseCluster</code> | The Aurora PostgreSQL cluster to backup. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.containerImage">containerImage</a></code> | <code>aws-cdk-lib.aws_ecs.ContainerImage</code> | Container image for backup operations. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.databaseUser">databaseUser</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser">AuroraBackupUser</a></code> | Database user configuration for authentication. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupBucketName">backupBucketName</a></code> | <code>string</code> | Name for the S3 backup bucket that will be created by the construct. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cluster">cluster</a></code> | <code>aws-cdk-lib.aws_rds.IDatabaseCluster</code> | The Aurora PostgreSQL database cluster to backup. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.connection">connection</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps">AuroraBackupConnectionProps</a></code> | Database connection configuration. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.ecrRepository">ecrRepository</a></code> | <code>aws-cdk-lib.aws_ecr.IRepository</code> | ECR repository containing the backup Docker image. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | The VPC where the backup service will run. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.IAccessPoint</code> | Existing EFS access point for backup storage. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupBucket">backupBucket</a></code> | <code>aws-cdk-lib.aws_s3.IBucket</code> | S3 bucket for backup storage. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule">backupSchedule</a></code> | <code>string</code> | Backup schedule cron expression (UTC). |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule">backupSchedule</a></code> | <code>string</code> | Backup schedule in EventBridge cron expression format (UTC). |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cpu">cpu</a></code> | <code>number</code> | Fargate task CPU units. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.efsMountPath">efsMountPath</a></code> | <code>string</code> | EFS mount path inside the container. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.IFileSystem</code> | Existing EFS file system for backup storage. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.memoryLimitMiB">memoryLimitMiB</a></code> | <code>number</code> | Fargate task memory in MB. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.retentionDays">retentionDays</a></code> | <code>number</code> | Backup retention period in days. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.securityGroups">securityGroups</a></code> | <code>aws-cdk-lib.aws_ec2.ISecurityGroup[]</code> | Custom security groups for the backup service. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.subnets">subnets</a></code> | <code>aws-cdk-lib.aws_ec2.SubnetSelection</code> | VPC subnets where the backup service should run. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.subnetSelection">subnetSelection</a></code> | <code>aws-cdk-lib.aws_ec2.SubnetSelection</code> | Subnet selection for the backup task. |
+
+---
+
+##### `backupBucketName`<sup>Required</sup> <a name="backupBucketName" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupBucketName"></a>
+
+```typescript
+public readonly backupBucketName: string;
+```
+
+- *Type:* string
+
+Name for the S3 backup bucket that will be created by the construct.
+
+The bucket will be configured with appropriate settings for backup storage.
 
 ---
 
@@ -661,31 +671,33 @@ public readonly cluster: IDatabaseCluster;
 
 - *Type:* aws-cdk-lib.aws_rds.IDatabaseCluster
 
-The Aurora PostgreSQL cluster to backup.
+The Aurora PostgreSQL database cluster to backup.
 
 ---
 
-##### `containerImage`<sup>Required</sup> <a name="containerImage" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.containerImage"></a>
+##### `connection`<sup>Required</sup> <a name="connection" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.connection"></a>
 
 ```typescript
-public readonly containerImage: ContainerImage;
+public readonly connection: AuroraBackupConnectionProps;
 ```
 
-- *Type:* aws-cdk-lib.aws_ecs.ContainerImage
+- *Type:* <a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps">AuroraBackupConnectionProps</a>
 
-Container image for backup operations.
+Database connection configuration.
 
 ---
 
-##### `databaseUser`<sup>Required</sup> <a name="databaseUser" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.databaseUser"></a>
+##### `ecrRepository`<sup>Required</sup> <a name="ecrRepository" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.ecrRepository"></a>
 
 ```typescript
-public readonly databaseUser: AuroraBackupUser;
+public readonly ecrRepository: IRepository;
 ```
 
-- *Type:* <a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupUser">AuroraBackupUser</a>
+- *Type:* aws-cdk-lib.aws_ecr.IRepository
 
-Database user configuration for authentication.
+ECR repository containing the backup Docker image.
+
+The image will be pulled using the imageUri from the `AuroraBackupRepository` construct.
 
 ---
 
@@ -701,34 +713,6 @@ The VPC where the backup service will run.
 
 ---
 
-##### `accessPoint`<sup>Optional</sup> <a name="accessPoint" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.accessPoint"></a>
-
-```typescript
-public readonly accessPoint: IAccessPoint;
-```
-
-- *Type:* aws-cdk-lib.aws_efs.IAccessPoint
-
-Existing EFS access point for backup storage.
-
-If provided, fileSystem must also be provided.
-
----
-
-##### `backupBucket`<sup>Optional</sup> <a name="backupBucket" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupBucket"></a>
-
-```typescript
-public readonly backupBucket: IBucket;
-```
-
-- *Type:* aws-cdk-lib.aws_s3.IBucket
-
-S3 bucket for backup storage.
-
-If not provided, backups will only be stored on EFS.
-
----
-
 ##### `backupSchedule`<sup>Optional</sup> <a name="backupSchedule" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule"></a>
 
 ```typescript
@@ -738,7 +722,12 @@ public readonly backupSchedule: string;
 - *Type:* string
 - *Default:* '0 5 * * ? *' - Daily at 5:00 AM UTC
 
-Backup schedule cron expression (UTC).
+Backup schedule in EventBridge cron expression format (UTC).
+
+Can be either a cron fragment (e.g., '0 5 * * ? *') or a full expression (e.g., 'cron(0 5 * * ? *)').
+Also supports rate expressions (e.g., 'rate(1 day)').
+
+> [https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html)
 
 ---
 
@@ -752,33 +741,6 @@ public readonly cpu: number;
 - *Default:* 256
 
 Fargate task CPU units.
-
----
-
-##### `efsMountPath`<sup>Optional</sup> <a name="efsMountPath" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.efsMountPath"></a>
-
-```typescript
-public readonly efsMountPath: string;
-```
-
-- *Type:* string
-- *Default:* '/mnt/aurora-backups'
-
-EFS mount path inside the container.
-
----
-
-##### `fileSystem`<sup>Optional</sup> <a name="fileSystem" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.fileSystem"></a>
-
-```typescript
-public readonly fileSystem: IFileSystem;
-```
-
-- *Type:* aws-cdk-lib.aws_efs.IFileSystem
-
-Existing EFS file system for backup storage.
-
-If provided, accessPoint must also be provided.
 
 ---
 
@@ -808,28 +770,16 @@ Backup retention period in days.
 
 ---
 
-##### `securityGroups`<sup>Optional</sup> <a name="securityGroups" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.securityGroups"></a>
+##### `subnetSelection`<sup>Optional</sup> <a name="subnetSelection" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.subnetSelection"></a>
 
 ```typescript
-public readonly securityGroups: ISecurityGroup[];
-```
-
-- *Type:* aws-cdk-lib.aws_ec2.ISecurityGroup[]
-
-Custom security groups for the backup service.
-
----
-
-##### `subnets`<sup>Optional</sup> <a name="subnets" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.subnets"></a>
-
-```typescript
-public readonly subnets: SubnetSelection;
+public readonly subnetSelection: SubnetSelection;
 ```
 
 - *Type:* aws-cdk-lib.aws_ec2.SubnetSelection
-- *Default:* Private subnets with egress
+- *Default:* { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS } - Uses private subnets with egress
 
-VPC subnets where the backup service should run.
+Subnet selection for the backup task.
 
 ---
 

@@ -2,7 +2,7 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.221.1',
+  cdkVersion: '2.225.0',
   defaultReleaseBranch: 'master',
   jsiiVersion: '~5.8.0',
   name: '@renovosolutions/cdk-library-aurora-native-backup',

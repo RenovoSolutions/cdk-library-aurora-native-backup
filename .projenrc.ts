@@ -2,7 +2,7 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.225.0',
+  cdkVersion: '2.233.0',
   defaultReleaseBranch: 'master',
   jsiiVersion: '~5.8.0',
   name: '@renovosolutions/cdk-library-aurora-native-backup',
@@ -19,11 +19,12 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'projen',
   ],
   deps: [
-    'cdk-ecr-deployment@^4.0.3',
+    'cdk-ecr-deployment@^4.0.5',
   ],
   peerDeps: [
     'constructs',
     'aws-cdk-lib',
+    'cdk-nag',
   ],
   depsUpgrade: true,
   depsUpgradeOptions: {
@@ -36,10 +37,8 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'aws-cdk-lib',
     '@aws-sdk/client-s3@^3.0.0',
     'prompts@^2.4.0',
-    '@types/prompts@^2.4.0',
-  ],
-  gitignore: [
-    'test/read*',
+    '@types/prompts@^2.4.9',
+    'cdk-nag@^2.37.55',
   ],
   githubOptions: {
     mergify: false,

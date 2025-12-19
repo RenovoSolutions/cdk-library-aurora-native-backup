@@ -15,6 +15,7 @@ import {
   RemovalPolicy,
   Tags,
 } from 'aws-cdk-lib';
+import { NagSuppressions } from 'cdk-nag';
 import { Construct } from 'constructs';
 
 /**
@@ -220,14 +221,35 @@ export class AuroraNativeBackupService extends Construct {
       securityGroupName: 'AuroraBackupServiceSG',
       vpc,
       description: 'Security group for Aurora backup service',
-      allowAllOutbound: true,
+      allowAllOutbound: false,
     });
+
+    // Allow HTTPS outbound for S3 access
+    this.backupSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(443),
+      'Allow HTTPS for S3 and AWS services',
+    );
+
+    // Allow PostgreSQL outbound to Aurora cluster
+    this.backupSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(5432),
+      'Allow PostgreSQL connection to Aurora cluster',
+    );
+
+    // Allow NFS outbound to EFS
+    this.backupSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.tcp(2049),
+      'Allow NFS connection to EFS',
+    );
 
     const fileSystemSecurityGroup = new ec2.SecurityGroup(this, 'BackupEfsSecurityGroup', {
       securityGroupName: 'AuroraBackupEfsSG',
       vpc,
       description: 'Security group for Aurora backup EFS',
-      allowAllOutbound: true,
+      allowAllOutbound: false,
     });
 
     fileSystemSecurityGroup.addIngressRule(
@@ -267,6 +289,7 @@ export class AuroraNativeBackupService extends Construct {
       removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
+      enforceSSL: true,
       lifecycleRules: [
         {
           id: 'DeleteOldBackups',
@@ -275,6 +298,34 @@ export class AuroraNativeBackupService extends Construct {
         },
       ],
     });
+
+    // Suppress S3 Nag checks
+    NagSuppressions.addResourceSuppressions(
+      this.backupBucket,
+      [
+        {
+          id: 'AwsSolutions-S1',
+          reason: 'Server access logging is not required for this backup bucket.',
+        },
+        {
+          id: 'NIST.800.53.R5-S3BucketLoggingEnabled',
+          reason: 'Server access logging is not required for this backup bucket.',
+        },
+        {
+          id: 'NIST.800.53.R5-S3DefaultEncryptionKMS',
+          reason: 'According to Renovo encryption policy, default S3 encryption is sufficient for backup bucket.',
+        },
+        {
+          id: 'NIST.800.53.R5-S3BucketVersioningEnabled',
+          reason: 'Versioning is not required for backup bucket.',
+        },
+        {
+          id: 'NIST.800.53.R5-S3BucketReplicationEnabled',
+          reason: 'Replication is not required for backup bucket.',
+        },
+      ],
+      true,
+    );
     // Tag the backup bucket for discovery by restore CLI
     Tags.of(this.backupBucket).add('aurora_native_backup_bucket', 'true');
 
@@ -284,6 +335,28 @@ export class AuroraNativeBackupService extends Construct {
       retention: logs.RetentionDays.TWO_YEARS,
       removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
+
+    // Suppress CloudWatch Logs encryption - using default AWS managed key
+    NagSuppressions.addResourceSuppressions(
+      logGroup,
+      [
+        {
+          id: 'NIST.800.53.R5-CloudWatchLogGroupEncrypted',
+          reason: 'According to Renovo encryption policy, default CloudWatch Logs encryption with AWS managed keys is sufficient.',
+        },
+      ],
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      this.fileSystem,
+      [
+        {
+          id: 'NIST.800.53.R5-EFSInBackupPlan',
+          reason: 'EFS is just a temporary storage for backups before they are copied to S3;',
+        },
+      ],
+      true,
+    );
 
     // Prepare environment variables
     const databaseNames = connection.databaseNames ?? ['postgres'];
@@ -303,84 +376,237 @@ export class AuroraNativeBackupService extends Construct {
       DB_PASSWORD: ecs.Secret.fromSecretsManager(connection.passwordSecret, 'password'),
     };
 
-    // Create scheduled task using image options approach
-    this.scheduledTask = new ecsPatterns.ScheduledFargateTask(this, 'BackupScheduledTask', {
-      vpc,
-      subnetSelection,
-      scheduledFargateTaskImageOptions: {
-        image: containerImage,
-        environment: taskEnvironment,
-        secrets: containerSecrets,
-        cpu,
-        memoryLimitMiB,
-        logDriver: ecs.LogDrivers.awsLogs({
-          streamPrefix: 'backup',
-          logGroup,
-        }),
-      },
-      schedule: scheduleExpression,
-      securityGroups: [this.backupSecurityGroup],
+    // Create custom execution role with managed policies
+    this.executionRole = new iam.Role(this, 'ExecutionRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'ECS task execution role for Aurora backup service',
     });
 
-    // Get the task definition created by the scheduled task
-    this.taskDefinition = this.scheduledTask.taskDefinition;
-
-    // Set the runtime platform to ARM64 to match the Docker image architecture
-    const cfnTaskDefinition = this.taskDefinition.node.defaultChild as ecs.CfnTaskDefinition;
-    cfnTaskDefinition.runtimePlatform = {
-      cpuArchitecture: 'ARM64',
-      operatingSystemFamily: 'LINUX',
-    };
-
-    // Add EFS volume and mount point to the created task definition
-    this.taskDefinition.addVolume({
-      name: 'AuroraBackupData',
-      efsVolumeConfiguration: {
-        fileSystemId: this.fileSystem.fileSystemId,
-        transitEncryption: 'ENABLED',
-        authorizationConfig: {
-          accessPointId: this.accessPoint.accessPointId,
-          iam: 'ENABLED',
+    // Create managed policy for ECS task execution (ECR pull, CloudWatch logs, Secrets Manager)
+    const executionRolePolicy = new iam.ManagedPolicy(this, 'ExecutionRolePolicy', {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'ecr:GetAuthorizationToken',
+            'ecr:BatchCheckLayerAvailability',
+            'ecr:GetDownloadUrlForLayer',
+            'ecr:BatchGetImage',
+          ],
+          resources: ['*'],
+        }),
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'logs:CreateLogStream',
+            'logs:PutLogEvents',
+          ],
+          resources: [logGroup.logGroupArn],
+        }),
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            'secretsmanager:GetSecretValue',
+            'secretsmanager:DescribeSecret',
+          ],
+          resources: [connection.passwordSecret.secretArn],
+        }),
+      ],
+    });
+    NagSuppressions.addResourceSuppressions(
+      executionRolePolicy,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'ECR GetAuthorizationToken requires wildcard resource. Other ECR actions are scoped to repository but CDK patterns require wildcard for maximum compatibility.',
         },
+      ],
+      true,
+    );
+    this.executionRole.addManagedPolicy(executionRolePolicy);
+
+    // Create managed policy for execution role EFS access
+    const executionRoleEfsPolicy = new iam.ManagedPolicy(this, 'ExecutionRoleEfsPolicy', {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
+          resources: [this.accessPoint.accessPointArn],
+        }),
+      ],
+    });
+    this.executionRole.addManagedPolicy(executionRoleEfsPolicy);
+
+    // Create custom task role with managed policies
+    this.taskRole = new iam.Role(this, 'TaskRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+      description: 'ECS task role for Aurora backup service',
+    });
+
+    // Create managed policy for S3 backup storage access
+    const s3BackupPolicy = new iam.ManagedPolicy(this, 'S3BackupPolicy', {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: [
+            's3:PutObject',
+            's3:GetObject',
+            's3:DeleteObject',
+            's3:ListBucket',
+            's3:GetBucketLocation',
+            's3:AbortMultipartUpload',
+            's3:ListMultipartUploadParts',
+            's3:ListBucketMultipartUploads',
+          ],
+          resources: [
+            this.backupBucket.bucketArn,
+            `${this.backupBucket.bucketArn}/*`,
+          ],
+        }),
+      ],
+    });
+    NagSuppressions.addResourceSuppressions(
+      s3BackupPolicy,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'S3 managed policy uses wildcard on specific bucket and objects path to allow necessary S3 operations for backup storage.',
+        },
+      ],
+      true,
+    );
+    this.taskRole.addManagedPolicy(s3BackupPolicy);
+
+    // Create managed policy for task role EFS access
+    const taskRoleEfsPolicy = new iam.ManagedPolicy(this, 'TaskRoleEfsPolicy', {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['elasticfilesystem:ClientWrite'],
+          resources: [this.accessPoint.accessPointArn],
+        }),
+      ],
+    });
+    this.taskRole.addManagedPolicy(taskRoleEfsPolicy);
+
+    const cluster = new ecs.Cluster(this, 'BackupCluster', {
+      vpc,
+      containerInsightsV2: ecs.ContainerInsights.ENHANCED,
+    });
+
+    // Create custom task definition with custom roles and EFS volume
+    this.taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDefinition', {
+      cpu,
+      memoryLimitMiB,
+      taskRole: this.taskRole,
+      executionRole: this.executionRole,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
       },
+      volumes: [
+        {
+          name: 'AuroraBackupData',
+          efsVolumeConfiguration: {
+            fileSystemId: this.fileSystem.fileSystemId,
+            transitEncryption: 'ENABLED',
+            authorizationConfig: {
+              accessPointId: this.accessPoint.accessPointId,
+              iam: 'ENABLED',
+            },
+          },
+        },
+      ],
+    });
+
+    // Add container to the task definition
+    const container = this.taskDefinition.addContainer('BackupContainer', {
+      image: containerImage,
+      environment: taskEnvironment,
+      secrets: containerSecrets,
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'backup',
+        logGroup,
+      }),
     });
 
     // Add mount points to the container
-    const container = this.taskDefinition.defaultContainer!;
     container.addMountPoints({
       containerPath: '/mnt/aurora-backups',
       sourceVolume: 'AuroraBackupData',
       readOnly: false,
     });
 
+    // Suppress environment variable warning - only non-sensitive config is in env vars
+    NagSuppressions.addResourceSuppressions(
+      this.taskDefinition,
+      [
+        {
+          id: 'AwsSolutions-ECS2',
+          reason: 'Environment variables contain only non-sensitive configuration data (database host, port, bucket names). Sensitive credentials (DB_PASSWORD) are stored in AWS Secrets Manager and injected as ECS secrets.',
+        },
+      ],
+    );
+
+    // Create scheduled task using custom task definition
+    this.scheduledTask = new ecsPatterns.ScheduledFargateTask(this, 'BackupScheduledTask', {
+      vpc,
+      cluster,
+      subnetSelection,
+      scheduledFargateTaskDefinitionOptions: {
+        taskDefinition: this.taskDefinition,
+      },
+      schedule: scheduleExpression,
+      securityGroups: [this.backupSecurityGroup],
+    });
+
     this.ecsCluster = this.scheduledTask.cluster;
     this.scheduledTask.node.addDependency(this.fileSystem.mountTargetsAvailable);
 
-    this.taskRole = this.taskDefinition.taskRole as iam.Role;
-    this.executionRole = this.taskDefinition.executionRole as iam.Role;
-
-    // Grant permissions for secrets access (execution role retrieves secrets at container startup)
-    connection.passwordSecret.grantRead(this.executionRole);
-
-    // S3 permissions for backup storage
-    this.backupBucket.grantReadWrite(this.taskRole);
-
-    // EFS permissions
-    this.taskRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['elasticfilesystem:ClientWrite'],
-        resources: [this.accessPoint.accessPointArn],
-      }),
+    // Suppress inline policies still auto-created by CDK even with custom roles
+    // ExecutionRole gets a default policy for EFS mounting even though we provide EFS permissions
+    NagSuppressions.addResourceSuppressionsByPath(
+      stack,
+      `/${this.node.path}/ExecutionRole/DefaultPolicy`,
+      [
+        {
+          id: 'NIST.800.53.R5-IAMNoInlinePolicy',
+          reason: 'Execution role default inline policy is auto-generated by CDK for additional ECS task execution capabilities.',
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Execution role requires wildcard permissions for ECS operations. Auto-generated by CDK.',
+        },
+      ],
+      true,
     );
 
-    // EFS permissions for execution role
-    this.executionRole.addToPolicy(
-      new iam.PolicyStatement({
-        effect: iam.Effect.ALLOW,
-        actions: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
-        resources: [this.accessPoint.accessPointArn],
-      }),
+    // Suppress EventsRole inline policy (auto-generated by ScheduledFargateTask for EventBridge integration)
+    NagSuppressions.addResourceSuppressionsByPath(
+      stack,
+      `/${this.node.path}/TaskDefinition/EventsRole/DefaultPolicy`,
+      [
+        {
+          id: 'NIST.800.53.R5-IAMNoInlinePolicy',
+          reason: 'Events role default inline policy is auto-generated by CDK for EventBridge task scheduling.',
+        },
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'Events role requires wildcard permissions to invoke ECS tasks. Auto-generated by CDK.',
+        },
+      ],
+      true,
+    );
+
+    NagSuppressions.addResourceSuppressions(
+      this.scheduledTask,
+      [
+        {
+          id: 'AwsSolutions-IAM5',
+          reason: 'EventBridge scheduler role requires wildcard permissions to run ECS tasks in the cluster.',
+        },
+      ],
+      true,
     );
   }
 

@@ -20,7 +20,7 @@
     },
     {
       "name": "@types/prompts",
-      "version": "^2.4.0",
+      "version": "^2.4.9",
       "type": "build"
     },
     {
@@ -35,6 +35,11 @@
     },
     {
       "name": "aws-cdk-lib",
+      "type": "build"
+    },
+    {
+      "name": "cdk-nag",
+      "version": "^2.37.55",
       "type": "build"
     },
     {
@@ -110,7 +115,11 @@
     },
     {
       "name": "aws-cdk-lib",
-      "version": "^2.225.0",
+      "version": "^2.233.0",
+      "type": "peer"
+    },
+    {
+      "name": "cdk-nag",
       "type": "peer"
     },
     {
@@ -120,7 +129,7 @@
     },
     {
       "name": "cdk-ecr-deployment",
-      "version": "^4.0.3",
+      "version": "^4.0.5",
       "type": "runtime"
     }
   ],

@@ -1,5 +1,7 @@
 import * as path from 'path';
 import {
+  Aspects,
+  Stack,
   aws_ecr as ecr,
   aws_iam as iam,
   RemovalPolicy,
@@ -7,6 +9,7 @@ import {
 } from 'aws-cdk-lib';
 import { DockerImageAsset, Platform } from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecrdeploy from 'cdk-ecr-deployment';
+import { NagSuppressions } from 'cdk-nag';
 import { Construct } from 'constructs';
 
 /**
@@ -81,6 +84,7 @@ export class AuroraBackupRepository extends Construct {
       removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
       imageScanOnPush: true,
       imageTagMutability: ecr.TagMutability.MUTABLE,
+      encryption: ecr.RepositoryEncryption.AES_256,
     });
 
     // Build the Docker image
@@ -102,6 +106,52 @@ export class AuroraBackupRepository extends Construct {
     new ecrdeploy.ECRDeployment(this, 'PromoteImageToRepository', {
       src: new ecrdeploy.DockerImageName(this.imageAsset.imageUri),
       dest: new ecrdeploy.DockerImageName(`${this.repository.repositoryUri}:latest`),
+    });
+
+    // Suppress CDK Nag violations for the ECRDeployment construct (third-party library)
+    // ECRDeployment creates Lambda functions dynamically, so we use Aspects to find and suppress child resources
+    Aspects.of(Stack.of(this)).add({
+      visit(node: Construct) {
+        if (node.node.path.includes('CDKECRDeployment')) {
+          // Suppress all third-party library violations
+          NagSuppressions.addResourceSuppressions(
+            node,
+            [
+              {
+                id: 'AwsSolutions-IAM4',
+                reason: 'ECRDeployment Lambda uses AWS managed policy created by third-party cdk-ecr-deployment library.',
+                appliesTo: ['Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'],
+              },
+              {
+                id: 'AwsSolutions-IAM5',
+                reason: 'ECRDeployment Lambda requires wildcard permissions - controlled by third-party cdk-ecr-deployment library.',
+                appliesTo: ['Resource::*'],
+              },
+              {
+                id: 'AwsSolutions-L1',
+                reason: 'ECRDeployment Lambda runtime managed by third-party cdk-ecr-deployment library.',
+              },
+              {
+                id: 'NIST.800.53.R5-IAMNoInlinePolicy',
+                reason: 'ECRDeployment uses inline policies created by third-party cdk-ecr-deployment library.',
+              },
+              {
+                id: 'NIST.800.53.R5-LambdaConcurrency',
+                reason: 'ECRDeployment Lambda created by third-party library without concurrency configuration.',
+              },
+              {
+                id: 'NIST.800.53.R5-LambdaDLQ',
+                reason: 'ECRDeployment Lambda created by third-party library without DLQ configuration.',
+              },
+              {
+                id: 'NIST.800.53.R5-LambdaInsideVPC',
+                reason: 'ECRDeployment Lambda created by third-party library does not need VPC access.',
+              },
+            ],
+            true,
+          );
+        }
+      },
     });
 
     this.imageUri = `${this.repository.repositoryUri}:latest`;

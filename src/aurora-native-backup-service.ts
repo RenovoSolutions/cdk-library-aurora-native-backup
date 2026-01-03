@@ -4,13 +4,13 @@ import {
   aws_ec2 as ec2,
   aws_ecr as ecr,
   aws_ecs as ecs,
-  aws_ecs_patterns as ecsPatterns,
   aws_efs as efs,
-  aws_events as events,
   aws_iam as iam,
   aws_logs as logs,
   aws_rds as rds,
   aws_s3 as s3,
+  aws_scheduler as scheduler,
+  aws_scheduler_targets as scheduler_targets,
   aws_secretsmanager as secretsmanager,
   RemovalPolicy,
   Tags,
@@ -58,8 +58,9 @@ export interface AuroraBackupConnectionProps {
 export interface AuroraNativeBackupServiceProps {
   /**
    * The Aurora PostgreSQL database cluster to backup.
+   * Must implement IConnectable for security group configuration.
    */
-  readonly cluster: rds.IDatabaseCluster;
+  readonly cluster: rds.IDatabaseCluster & ec2.IConnectable;
 
   /**
    * The VPC where the backup service will run.
@@ -85,14 +86,35 @@ export interface AuroraNativeBackupServiceProps {
   readonly retentionDays?: number;
 
   /**
-   * Backup schedule in EventBridge cron expression format (UTC).
-   * Can be either a cron fragment (e.g., '0 5 * * ? *') or a full expression (e.g., 'cron(0 5 * * ? *)').
-   * Also supports rate expressions (e.g., 'rate(1 day)').
+   * Backup schedule using EventBridge Scheduler ScheduleExpression.
    *
-   * @default '0 5 * * ? *' - Daily at 5:00 AM UTC
+   * Use scheduler.ScheduleExpression.cron() or scheduler.ScheduleExpression.rate() to define the schedule.
+   *
+   * @default scheduler.ScheduleExpression.cron({ minute: '0', hour: '5' }) - Daily at 5:00 AM UTC
+   *
+   * @example
+   * // Daily at 3 AM UTC
+   * backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '3' })
+   *
+   * @example
+   * // Every 12 hours
+   * backupSchedule: scheduler.ScheduleExpression.rate(Duration.hours(12))
+   *
+   * @example
+   * // Weekly on Sundays at 2 AM UTC
+   * backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '2', weekDay: 'SUN' })
+   *
    * @see https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html
    */
-  readonly backupSchedule?: string;
+  readonly backupSchedule?: scheduler.ScheduleExpression;
+
+  /**
+   * The time window during which the scheduled task is allowed to be invoked.
+   * This is passed to the EventBridge Scheduler `Schedule` as `timeWindow`.
+   *
+   * @default scheduler.TimeWindow.flexible(Duration.minutes(60))
+   */
+  readonly scheduleTimeWindow?: scheduler.TimeWindow;
 
   /**
    * Fargate task CPU units.
@@ -145,14 +167,19 @@ export interface AuroraNativeBackupServiceProps {
  */
 export class AuroraNativeBackupService extends Construct {
   /**
-   * The ECS scheduled task that runs the backup process.
+   * The EventBridge schedule that triggers the backup task.
    */
-  public readonly scheduledTask: ecsPatterns.ScheduledFargateTask;
+  public readonly schedule: scheduler.Schedule;
+
+  /**
+   * The IAM role for the EventBridge Scheduler.
+   */
+  public readonly schedulerRole: iam.Role;
 
   /**
    * The ECS cluster running the backup service.
    */
-  public readonly ecsCluster: ecs.ICluster;
+  public readonly ecsCluster: ecs.Cluster;
 
   /**
    * The ECS task definition for the backup container.
@@ -206,16 +233,17 @@ export class AuroraNativeBackupService extends Construct {
       backupBucketName,
       connection,
       retentionDays = 7,
-      backupSchedule = '0 5 * * ? *',
+      backupSchedule = scheduler.ScheduleExpression.cron({ minute: '0', hour: '5' }),
       cpu = 256,
       memoryLimitMiB = 512,
       ecrRepository,
       subnetSelection = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
     } = props;
 
-    const containerImage = ecs.ContainerImage.fromEcrRepository(ecrRepository, 'latest');
+    // Generate schedule name and truncate to 64 characters (AWS EventBridge Scheduler limit)
+    const scheduleName = `backup-${dbCluster.clusterIdentifier}`.substring(0, 64);
 
-    const scheduleExpression = events.Schedule.expression(this.normalizeScheduleExpression(backupSchedule));
+    const containerImage = ecs.ContainerImage.fromEcrRepository(ecrRepository, 'latest');
 
     this.backupSecurityGroup = new ec2.SecurityGroup(this, 'BackupSecurityGroup', {
       securityGroupName: 'AuroraBackupServiceSG',
@@ -228,22 +256,22 @@ export class AuroraNativeBackupService extends Construct {
     this.backupSecurityGroup.addEgressRule(
       ec2.Peer.anyIpv4(),
       ec2.Port.tcp(443),
-      'Allow HTTPS for S3 and AWS services',
+      'Allow HTTPS for S3 and AWS services (IPv4)',
+    );
+    this.backupSecurityGroup.addEgressRule(
+      ec2.Peer.anyIpv6(),
+      ec2.Port.tcp(443),
+      'Allow HTTPS for S3 and AWS services (IPv6)',
     );
 
-    // Allow PostgreSQL outbound to Aurora cluster
-    this.backupSecurityGroup.addEgressRule(
-      ec2.Peer.anyIpv4(),
+    // Allow PostgreSQL outbound to Aurora cluster using connections API
+    this.backupSecurityGroup.connections.allowTo(
+      dbCluster,
       ec2.Port.tcp(5432),
-      'Allow PostgreSQL connection to Aurora cluster',
+      'Allow backup service to connect to Aurora cluster',
     );
 
-    // Allow NFS outbound to EFS
-    this.backupSecurityGroup.addEgressRule(
-      ec2.Peer.anyIpv4(),
-      ec2.Port.tcp(2049),
-      'Allow NFS connection to EFS',
-    );
+    // NFS access to EFS: will be allowed after EFS Security Group is created below using `connections.allowTo`.
 
     const fileSystemSecurityGroup = new ec2.SecurityGroup(this, 'BackupEfsSecurityGroup', {
       securityGroupName: 'AuroraBackupEfsSG',
@@ -251,12 +279,6 @@ export class AuroraNativeBackupService extends Construct {
       description: 'Security group for Aurora backup EFS',
       allowAllOutbound: false,
     });
-
-    fileSystemSecurityGroup.addIngressRule(
-      this.backupSecurityGroup,
-      ec2.Port.tcp(2049),
-      'Allow NFS access from backup task',
-    );
 
     const fileSystem = new efs.FileSystem(this, 'BackupFileSystem', {
       vpc,
@@ -267,6 +289,12 @@ export class AuroraNativeBackupService extends Construct {
       throughputMode: efs.ThroughputMode.ELASTIC,
       removalPolicy: RemovalPolicy.RETAIN_ON_UPDATE_OR_DELETE,
     });
+    // Allow NFS access from backup task security group to the EFS security group
+    this.backupSecurityGroup.connections.allowTo(
+      fileSystemSecurityGroup,
+      ec2.Port.tcp(2049),
+      'Allow NFS access to EFS',
+    );
     this.fileSystem = fileSystem;
     this.accessPoint = fileSystem.addAccessPoint('BackupAccessPoint', {
       path: '/aurora-backups',
@@ -305,11 +333,11 @@ export class AuroraNativeBackupService extends Construct {
       [
         {
           id: 'AwsSolutions-S1',
-          reason: 'Server access logging is not required for this backup bucket.',
+          reason: 'Server access logging will be configured by the consumer of this library and cannot be enforced here.',
         },
         {
           id: 'NIST.800.53.R5-S3BucketLoggingEnabled',
-          reason: 'Server access logging is not required for this backup bucket.',
+          reason: 'Server access logging will be configured by the consumer of this library and cannot be enforced here.',
         },
         {
           id: 'NIST.800.53.R5-S3DefaultEncryptionKMS',
@@ -345,6 +373,7 @@ export class AuroraNativeBackupService extends Construct {
           reason: 'According to Renovo encryption policy, default CloudWatch Logs encryption with AWS managed keys is sufficient.',
         },
       ],
+      false,
     );
 
     NagSuppressions.addResourceSuppressions(
@@ -387,13 +416,17 @@ export class AuroraNativeBackupService extends Construct {
       statements: [
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
+          actions: ['ecr:GetAuthorizationToken'],
+          resources: ['*'],
+        }),
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
           actions: [
-            'ecr:GetAuthorizationToken',
             'ecr:BatchCheckLayerAvailability',
             'ecr:GetDownloadUrlForLayer',
             'ecr:BatchGetImage',
           ],
-          resources: ['*'],
+          resources: [ecrRepository.repositoryArn],
         }),
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
@@ -418,7 +451,7 @@ export class AuroraNativeBackupService extends Construct {
       [
         {
           id: 'AwsSolutions-IAM5',
-          reason: 'ECR GetAuthorizationToken requires wildcard resource. Other ECR actions are scoped to repository but CDK patterns require wildcard for maximum compatibility.',
+          reason: 'ecr:GetAuthorizationToken is a global action that requires wildcard resource per AWS API requirements.',
         },
       ],
       true,
@@ -430,8 +463,8 @@ export class AuroraNativeBackupService extends Construct {
       statements: [
         new iam.PolicyStatement({
           effect: iam.Effect.ALLOW,
-          actions: ['elasticfilesystem:ClientMount', 'elasticfilesystem:ClientWrite'],
-          resources: [this.accessPoint.accessPointArn],
+          actions: ['elasticfilesystem:ClientRootAccess'],
+          resources: [this.fileSystem.fileSystemArn],
         }),
       ],
     });
@@ -498,8 +531,8 @@ export class AuroraNativeBackupService extends Construct {
     this.taskDefinition = new ecs.FargateTaskDefinition(this, 'TaskDefinition', {
       cpu,
       memoryLimitMiB,
-      taskRole: this.taskRole,
-      executionRole: this.executionRole,
+      taskRole: this.taskRole.withoutPolicyUpdates(),
+      executionRole: this.executionRole.withoutPolicyUpdates(),
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
@@ -546,82 +579,52 @@ export class AuroraNativeBackupService extends Construct {
           reason: 'Environment variables contain only non-sensitive configuration data (database host, port, bucket names). Sensitive credentials (DB_PASSWORD) are stored in AWS Secrets Manager and injected as ECS secrets.',
         },
       ],
+      false,
     );
 
-    // Create scheduled task using custom task definition
-    this.scheduledTask = new ecsPatterns.ScheduledFargateTask(this, 'BackupScheduledTask', {
-      vpc,
-      cluster,
-      subnetSelection,
-      scheduledFargateTaskDefinitionOptions: {
-        taskDefinition: this.taskDefinition,
-      },
-      schedule: scheduleExpression,
-      securityGroups: [this.backupSecurityGroup],
+    this.ecsCluster = cluster;
+
+    // Create scheduler policy for running ECS tasks
+    const schedulerPolicy = new iam.ManagedPolicy(this, 'SchedulerPolicy', {
+      statements: [
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['ecs:RunTask'],
+          resources: [this.taskDefinition.taskDefinitionArn],
+        }),
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['iam:PassRole'],
+          resources: [this.taskRole.roleArn, this.executionRole.roleArn],
+          conditions: {
+            StringEquals: {
+              'iam:PassedToService': 'ecs-tasks.amazonaws.com',
+            },
+          },
+        }),
+      ],
     });
 
-    this.ecsCluster = this.scheduledTask.cluster;
-    this.scheduledTask.node.addDependency(this.fileSystem.mountTargetsAvailable);
+    this.schedulerRole = new iam.Role(this, 'SchedulerRole', {
+      assumedBy: new iam.ServicePrincipal('scheduler.amazonaws.com'),
+      description: 'IAM role for Scheduler to run Aurora backup Fargate task',
+    });
+    this.schedulerRole.addManagedPolicy(schedulerPolicy);
 
-    // Suppress inline policies still auto-created by CDK even with custom roles
-    // ExecutionRole gets a default policy for EFS mounting even though we provide EFS permissions
-    NagSuppressions.addResourceSuppressionsByPath(
-      stack,
-      `/${this.node.path}/ExecutionRole/DefaultPolicy`,
-      [
-        {
-          id: 'NIST.800.53.R5-IAMNoInlinePolicy',
-          reason: 'Execution role default inline policy is auto-generated by CDK for additional ECS task execution capabilities.',
-        },
-        {
-          id: 'AwsSolutions-IAM5',
-          reason: 'Execution role requires wildcard permissions for ECS operations. Auto-generated by CDK.',
-        },
-      ],
-      true,
-    );
+    this.schedule = new scheduler.Schedule(this, 'BackupSchedule', {
+      schedule: backupSchedule,
+      timeWindow: props.scheduleTimeWindow ?? scheduler.TimeWindow.flexible(Duration.minutes(60)),
+      scheduleName: scheduleName,
+      description: `Daily backup schedule for Aurora cluster ${dbCluster.clusterIdentifier}`,
+      target: new scheduler_targets.EcsRunFargateTask(cluster, {
+        taskDefinition: this.taskDefinition,
+        platformVersion: ecs.FargatePlatformVersion.LATEST,
+        role: this.schedulerRole.withoutPolicyUpdates(),
+        securityGroups: [this.backupSecurityGroup],
+        vpcSubnets: subnetSelection,
+      }),
+    });
 
-    // Suppress EventsRole inline policy (auto-generated by ScheduledFargateTask for EventBridge integration)
-    NagSuppressions.addResourceSuppressionsByPath(
-      stack,
-      `/${this.node.path}/TaskDefinition/EventsRole/DefaultPolicy`,
-      [
-        {
-          id: 'NIST.800.53.R5-IAMNoInlinePolicy',
-          reason: 'Events role default inline policy is auto-generated by CDK for EventBridge task scheduling.',
-        },
-        {
-          id: 'AwsSolutions-IAM5',
-          reason: 'Events role requires wildcard permissions to invoke ECS tasks. Auto-generated by CDK.',
-        },
-      ],
-      true,
-    );
-
-    NagSuppressions.addResourceSuppressions(
-      this.scheduledTask,
-      [
-        {
-          id: 'AwsSolutions-IAM5',
-          reason: 'EventBridge scheduler role requires wildcard permissions to run ECS tasks in the cluster.',
-        },
-      ],
-      true,
-    );
-  }
-
-  /**
-   * Normalizes schedule expressions so both fragments (e.g. `0 5 * * ? *`)
-   * and full EventBridge expressions (e.g. `cron(0 5 * * ? *)`) are accepted.
-   *
-   * @param expression The schedule expression to normalize
-   * @returns A properly formatted EventBridge schedule expression
-   */
-  private normalizeScheduleExpression(expression: string): string {
-    const trimmed = expression.trim();
-    if (/^(cron|rate)\s*\(.+\)$/i.test(trimmed)) {
-      return trimmed;
-    }
-    return `cron(${trimmed})`;
+    this.schedule.node.addDependency(this.fileSystem.mountTargetsAvailable);
   }
 }

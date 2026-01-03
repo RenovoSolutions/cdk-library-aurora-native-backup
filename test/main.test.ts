@@ -1,9 +1,10 @@
-import { App, Stack } from 'aws-cdk-lib';
+import { App, Stack, Duration } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as rds from 'aws-cdk-lib/aws-rds';
+import * as scheduler from 'aws-cdk-lib/aws-scheduler';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import { AuroraBackupRepository, AuroraNativeBackupService } from '../src';
 
@@ -125,9 +126,8 @@ describe('Aurora Native Backup Library', () => {
         RuntimePlatform: { CpuArchitecture: 'ARM64' },
       });
 
-      // Should create scheduled EventBridge rule
-      template.hasResourceProperties('AWS::Events::Rule', {
-        ScheduleExpression: Match.stringLikeRegexp('cron\\(.*\\)'),
+      // Should create scheduled EventBridge Scheduler schedule
+      template.hasResourceProperties('AWS::Scheduler::Schedule', {
         State: 'ENABLED',
       });
     });
@@ -288,11 +288,11 @@ describe('Aurora Native Backup Library', () => {
         },
       });
 
-      // Should have policies for S3 and Secrets Manager access
-      template.hasResource('AWS::IAM::Policy', Match.objectLike({}));
+      // Should have managed policies for S3 and Secrets Manager access
+      template.hasResource('AWS::IAM::ManagedPolicy', Match.objectLike({}));
     });
 
-    test('accepts cron fragment expressions', () => {
+    test('accepts cron schedule expressions', () => {
       new AuroraNativeBackupService(stack, 'BackupService', {
         cluster,
         vpc,
@@ -303,19 +303,19 @@ describe('Aurora Native Backup Library', () => {
           databaseNames: ['prod'],
           passwordSecret: secret,
         },
-        backupSchedule: '0 5 * * ? *',
+        backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '5' }),
       });
 
       const template = Template.fromStack(stack);
 
-      // Should wrap fragment in cron()
-      template.hasResourceProperties('AWS::Events::Rule', {
-        ScheduleExpression: 'cron(0 5 * * ? *)',
+      // Should create schedule with cron expression
+      template.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpression: Match.stringLikeRegexp('cron\\(0 5 .*\\)'),
         State: 'ENABLED',
       });
     });
 
-    test('accepts full EventBridge cron expressions', () => {
+    test('accepts cron expressions with specific weekdays', () => {
       new AuroraNativeBackupService(stack, 'BackupService', {
         cluster,
         vpc,
@@ -326,14 +326,14 @@ describe('Aurora Native Backup Library', () => {
           databaseNames: ['prod'],
           passwordSecret: secret,
         },
-        backupSchedule: 'cron(0 2 ? * SUN *)',
+        backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '2', weekDay: 'SUN' }),
       });
 
       const template = Template.fromStack(stack);
 
-      // Should use expression as-is
-      template.hasResourceProperties('AWS::Events::Rule', {
-        ScheduleExpression: 'cron(0 2 ? * SUN *)',
+      // Should include weekday in expression
+      template.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpression: Match.stringLikeRegexp('cron\\(0 2 .* SUN .*\\)'),
         State: 'ENABLED',
       });
     });
@@ -349,14 +349,14 @@ describe('Aurora Native Backup Library', () => {
           databaseNames: ['prod'],
           passwordSecret: secret,
         },
-        backupSchedule: 'rate(1 day)',
+        backupSchedule: scheduler.ScheduleExpression.rate(Duration.days(1)),
       });
 
       const template = Template.fromStack(stack);
 
-      // Should use rate expression as-is
-      template.hasResourceProperties('AWS::Events::Rule', {
-        ScheduleExpression: 'rate(1 day)',
+      // Should use rate expression
+      template.hasResourceProperties('AWS::Scheduler::Schedule', {
+        ScheduleExpression: Match.stringLikeRegexp('rate\\(1 day\\)'),
         State: 'ENABLED',
       });
     });

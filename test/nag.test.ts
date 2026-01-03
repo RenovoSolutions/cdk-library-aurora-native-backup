@@ -149,6 +149,7 @@ describe('CDK Nag Checks', () => {
             reason: 'Test secret uses default encryption settings - this is test infrastructure',
           },
         ],
+        false,
       );
 
       const secret = new secretsmanager.Secret(stack, 'Secret');
@@ -170,6 +171,7 @@ describe('CDK Nag Checks', () => {
             reason: 'Test secret uses default encryption settings - this is test infrastructure',
           },
         ],
+        false,
       );
 
       const repository = new ecr.Repository(stack, 'Repo');

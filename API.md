@@ -374,10 +374,11 @@ Any object.
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.accessPoint">accessPoint</a></code> | <code>aws-cdk-lib.aws_efs.IAccessPoint</code> | The EFS access point for backup storage. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupBucket">backupBucket</a></code> | <code>aws-cdk-lib.aws_s3.Bucket</code> | The S3 bucket for backup storage. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.backupSecurityGroup">backupSecurityGroup</a></code> | <code>aws-cdk-lib.aws_ec2.SecurityGroup</code> | The security group for the backup service. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.ICluster</code> | The ECS cluster running the backup service. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.ecsCluster">ecsCluster</a></code> | <code>aws-cdk-lib.aws_ecs.Cluster</code> | The ECS cluster running the backup service. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.executionRole">executionRole</a></code> | <code>aws-cdk-lib.aws_iam.Role</code> | The IAM execution role for ECS tasks. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.fileSystem">fileSystem</a></code> | <code>aws-cdk-lib.aws_efs.IFileSystem</code> | The EFS file system for backup storage. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.scheduledTask">scheduledTask</a></code> | <code>aws-cdk-lib.aws_ecs_patterns.ScheduledFargateTask</code> | The ECS scheduled task that runs the backup process. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.schedule">schedule</a></code> | <code>aws-cdk-lib.aws_scheduler.Schedule</code> | The EventBridge schedule that triggers the backup task. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.schedulerRole">schedulerRole</a></code> | <code>aws-cdk-lib.aws_iam.Role</code> | The IAM role for the EventBridge Scheduler. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.taskDefinition">taskDefinition</a></code> | <code>aws-cdk-lib.aws_ecs.FargateTaskDefinition</code> | The ECS task definition for the backup container. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.taskRole">taskRole</a></code> | <code>aws-cdk-lib.aws_iam.Role</code> | The IAM role for backup tasks. |
 
@@ -434,10 +435,10 @@ The security group for the backup service.
 ##### `ecsCluster`<sup>Required</sup> <a name="ecsCluster" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.ecsCluster"></a>
 
 ```typescript
-public readonly ecsCluster: ICluster;
+public readonly ecsCluster: Cluster;
 ```
 
-- *Type:* aws-cdk-lib.aws_ecs.ICluster
+- *Type:* aws-cdk-lib.aws_ecs.Cluster
 
 The ECS cluster running the backup service.
 
@@ -467,15 +468,27 @@ The EFS file system for backup storage.
 
 ---
 
-##### `scheduledTask`<sup>Required</sup> <a name="scheduledTask" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.scheduledTask"></a>
+##### `schedule`<sup>Required</sup> <a name="schedule" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.schedule"></a>
 
 ```typescript
-public readonly scheduledTask: ScheduledFargateTask;
+public readonly schedule: Schedule;
 ```
 
-- *Type:* aws-cdk-lib.aws_ecs_patterns.ScheduledFargateTask
+- *Type:* aws-cdk-lib.aws_scheduler.Schedule
 
-The ECS scheduled task that runs the backup process.
+The EventBridge schedule that triggers the backup task.
+
+---
+
+##### `schedulerRole`<sup>Required</sup> <a name="schedulerRole" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupService.property.schedulerRole"></a>
+
+```typescript
+public readonly schedulerRole: Role;
+```
+
+- *Type:* aws-cdk-lib.aws_iam.Role
+
+The IAM role for the EventBridge Scheduler.
 
 ---
 
@@ -637,14 +650,15 @@ const auroraNativeBackupServiceProps: AuroraNativeBackupServiceProps = { ... }
 | **Name** | **Type** | **Description** |
 | --- | --- | --- |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupBucketName">backupBucketName</a></code> | <code>string</code> | Name for the S3 backup bucket that will be created by the construct. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cluster">cluster</a></code> | <code>aws-cdk-lib.aws_rds.IDatabaseCluster</code> | The Aurora PostgreSQL database cluster to backup. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cluster">cluster</a></code> | <code>aws-cdk-lib.aws_rds.IDatabaseCluster & aws-cdk-lib.aws_ec2.IConnectable</code> | The Aurora PostgreSQL database cluster to backup. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.connection">connection</a></code> | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraBackupConnectionProps">AuroraBackupConnectionProps</a></code> | Database connection configuration. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.ecrRepository">ecrRepository</a></code> | <code>aws-cdk-lib.aws_ecr.IRepository</code> | ECR repository containing the backup Docker image. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.vpc">vpc</a></code> | <code>aws-cdk-lib.aws_ec2.IVpc</code> | The VPC where the backup service will run. |
-| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule">backupSchedule</a></code> | <code>string</code> | Backup schedule in EventBridge cron expression format (UTC). |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule">backupSchedule</a></code> | <code>aws-cdk-lib.aws_scheduler.ScheduleExpression</code> | Backup schedule using EventBridge Scheduler ScheduleExpression. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cpu">cpu</a></code> | <code>number</code> | Fargate task CPU units. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.memoryLimitMiB">memoryLimitMiB</a></code> | <code>number</code> | Fargate task memory in MB. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.retentionDays">retentionDays</a></code> | <code>number</code> | Backup retention period in days. |
+| <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.scheduleTimeWindow">scheduleTimeWindow</a></code> | <code>aws-cdk-lib.aws_scheduler.TimeWindow</code> | The time window during which the scheduled task is allowed to be invoked. |
 | <code><a href="#@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.subnetSelection">subnetSelection</a></code> | <code>aws-cdk-lib.aws_ec2.SubnetSelection</code> | Subnet selection for the backup task. |
 
 ---
@@ -666,12 +680,14 @@ The bucket will be configured with appropriate settings for backup storage.
 ##### `cluster`<sup>Required</sup> <a name="cluster" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cluster"></a>
 
 ```typescript
-public readonly cluster: IDatabaseCluster;
+public readonly cluster: IDatabaseCluster & IConnectable;
 ```
 
-- *Type:* aws-cdk-lib.aws_rds.IDatabaseCluster
+- *Type:* aws-cdk-lib.aws_rds.IDatabaseCluster & aws-cdk-lib.aws_ec2.IConnectable
 
 The Aurora PostgreSQL database cluster to backup.
+
+Must implement IConnectable for security group configuration.
 
 ---
 
@@ -716,20 +732,27 @@ The VPC where the backup service will run.
 ##### `backupSchedule`<sup>Optional</sup> <a name="backupSchedule" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.backupSchedule"></a>
 
 ```typescript
-public readonly backupSchedule: string;
+public readonly backupSchedule: ScheduleExpression;
 ```
 
-- *Type:* string
-- *Default:* '0 5 * * ? *' - Daily at 5:00 AM UTC
+- *Type:* aws-cdk-lib.aws_scheduler.ScheduleExpression
+- *Default:* scheduler.ScheduleExpression.cron({ minute: '0', hour: '5' }) - Daily at 5:00 AM UTC
 
-Backup schedule in EventBridge cron expression format (UTC).
+Backup schedule using EventBridge Scheduler ScheduleExpression.
 
-Can be either a cron fragment (e.g., '0 5 * * ? *') or a full expression (e.g., 'cron(0 5 * * ? *)').
-Also supports rate expressions (e.g., 'rate(1 day)').
+Use scheduler.ScheduleExpression.cron() or scheduler.ScheduleExpression.rate() to define the schedule.
 
 > [https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html](https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-cron-expressions.html)
 
 ---
+
+*Example*
+
+```typescript
+// Weekly on Sundays at 2 AM UTC
+backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '2', weekDay: 'SUN' })
+```
+
 
 ##### `cpu`<sup>Optional</sup> <a name="cpu" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.cpu"></a>
 
@@ -767,6 +790,21 @@ public readonly retentionDays: number;
 - *Default:* 7
 
 Backup retention period in days.
+
+---
+
+##### `scheduleTimeWindow`<sup>Optional</sup> <a name="scheduleTimeWindow" id="@renovosolutions/cdk-library-aurora-native-backup.AuroraNativeBackupServiceProps.property.scheduleTimeWindow"></a>
+
+```typescript
+public readonly scheduleTimeWindow: TimeWindow;
+```
+
+- *Type:* aws-cdk-lib.aws_scheduler.TimeWindow
+- *Default:* scheduler.TimeWindow.flexible(Duration.minutes(60))
+
+The time window during which the scheduled task is allowed to be invoked.
+
+This is passed to the EventBridge Scheduler `Schedule` as `timeWindow`.
 
 ---
 

@@ -15,12 +15,52 @@ exports[`Aurora Native Backup Library AuroraBackupRepository matches CloudFormat
         "CustomCDKECRDeploymentbd07c930edb94112a20f03f096f53666512MiBServiceRoleDefaultPolicy280095F8",
         "CustomCDKECRDeploymentbd07c930edb94112a20f03f096f53666512MiBServiceRole8C8B0491",
       ],
+      "Metadata": {
+        "cdk_nag": {
+          "rules_to_suppress": [
+            {
+              "applies_to": [
+                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+              "id": "AwsSolutions-IAM4",
+              "reason": "ECRDeployment Lambda uses AWS managed policy created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "applies_to": [
+                "Resource::*",
+              ],
+              "id": "AwsSolutions-IAM5",
+              "reason": "ECRDeployment Lambda requires wildcard permissions - controlled by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "AwsSolutions-L1",
+              "reason": "ECRDeployment Lambda runtime managed by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-IAMNoInlinePolicy",
+              "reason": "ECRDeployment uses inline policies created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaConcurrency",
+              "reason": "ECRDeployment Lambda created by third-party library without concurrency configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaDLQ",
+              "reason": "ECRDeployment Lambda created by third-party library without DLQ configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaInsideVPC",
+              "reason": "ECRDeployment Lambda created by third-party library does not need VPC access.",
+            },
+          ],
+        },
+      },
       "Properties": {
         "Code": {
           "S3Bucket": {
             "Fn::Sub": "cdk-hnb659fds-assets-\${AWS::AccountId}-\${AWS::Region}",
           },
-          "S3Key": "f9fe08208bb630375623084d540d58774961091607761e7562942b832b23779d.zip",
+          "S3Key": "ae4622f6584470eb1736dfd3cc4689003ecca7a02f184b423d186688fbcb9dda.zip",
         },
         "Description": "Custom resource handler for copying Docker images between docker registries.",
         "Handler": "bootstrap",
@@ -37,6 +77,46 @@ exports[`Aurora Native Backup Library AuroraBackupRepository matches CloudFormat
       "Type": "AWS::Lambda::Function",
     },
     "CustomCDKECRDeploymentbd07c930edb94112a20f03f096f53666512MiBServiceRole8C8B0491": {
+      "Metadata": {
+        "cdk_nag": {
+          "rules_to_suppress": [
+            {
+              "applies_to": [
+                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+              "id": "AwsSolutions-IAM4",
+              "reason": "ECRDeployment Lambda uses AWS managed policy created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "applies_to": [
+                "Resource::*",
+              ],
+              "id": "AwsSolutions-IAM5",
+              "reason": "ECRDeployment Lambda requires wildcard permissions - controlled by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "AwsSolutions-L1",
+              "reason": "ECRDeployment Lambda runtime managed by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-IAMNoInlinePolicy",
+              "reason": "ECRDeployment uses inline policies created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaConcurrency",
+              "reason": "ECRDeployment Lambda created by third-party library without concurrency configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaDLQ",
+              "reason": "ECRDeployment Lambda created by third-party library without DLQ configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaInsideVPC",
+              "reason": "ECRDeployment Lambda created by third-party library does not need VPC access.",
+            },
+          ],
+        },
+      },
       "Properties": {
         "AssumeRolePolicyDocument": {
           "Statement": [
@@ -68,6 +148,46 @@ exports[`Aurora Native Backup Library AuroraBackupRepository matches CloudFormat
       "Type": "AWS::IAM::Role",
     },
     "CustomCDKECRDeploymentbd07c930edb94112a20f03f096f53666512MiBServiceRoleDefaultPolicy280095F8": {
+      "Metadata": {
+        "cdk_nag": {
+          "rules_to_suppress": [
+            {
+              "applies_to": [
+                "Policy::arn:<AWS::Partition>:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+              "id": "AwsSolutions-IAM4",
+              "reason": "ECRDeployment Lambda uses AWS managed policy created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "applies_to": [
+                "Resource::*",
+              ],
+              "id": "AwsSolutions-IAM5",
+              "reason": "ECRDeployment Lambda requires wildcard permissions - controlled by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "AwsSolutions-L1",
+              "reason": "ECRDeployment Lambda runtime managed by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-IAMNoInlinePolicy",
+              "reason": "ECRDeployment uses inline policies created by third-party cdk-ecr-deployment library.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaConcurrency",
+              "reason": "ECRDeployment Lambda created by third-party library without concurrency configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaDLQ",
+              "reason": "ECRDeployment Lambda created by third-party library without DLQ configuration.",
+            },
+            {
+              "id": "NIST.800.53.R5-LambdaInsideVPC",
+              "reason": "ECRDeployment Lambda created by third-party library does not need VPC access.",
+            },
+          ],
+        },
+      },
       "Properties": {
         "PolicyDocument": {
           "Statement": [

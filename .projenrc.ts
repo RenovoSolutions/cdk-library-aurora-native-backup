@@ -2,9 +2,9 @@ import { awscdk, javascript } from 'projen';
 const project = new awscdk.AwsCdkConstructLibrary({
   author: 'Renovo Solutions',
   authorAddress: 'webmaster+cdk@renovo1.com',
-  cdkVersion: '2.221.1',
+  cdkVersion: '2.233.0',
   defaultReleaseBranch: 'master',
-  jsiiVersion: '~5.8.0',
+  jsiiVersion: '5.9.22',
   name: '@renovosolutions/cdk-library-aurora-native-backup',
   projenrcTs: true,
   repositoryUrl: 'https://github.com/RenovoSolutions/cdk-library-aurora-native-backup.git',
@@ -19,11 +19,12 @@ const project = new awscdk.AwsCdkConstructLibrary({
     'projen',
   ],
   deps: [
-    'cdk-ecr-deployment@^4.0.3',
+    'cdk-ecr-deployment@^4.0.5',
   ],
   peerDeps: [
-    'constructs',
-    'aws-cdk-lib',
+    'constructs@10.4.5',
+    'aws-cdk-lib@2.233.0',
+    'cdk-nag@2.37.55',
   ],
   depsUpgrade: true,
   depsUpgradeOptions: {
@@ -31,15 +32,13 @@ const project = new awscdk.AwsCdkConstructLibrary({
     exclude: ['projen'],
   },
   devDeps: [
-    '@types/jest',
-    'constructs',
-    'aws-cdk-lib',
+    '@types/jest@^30.0.0',
+    'constructs@10.4.5',
+    'aws-cdk-lib@2.233.0',
     '@aws-sdk/client-s3@^3.0.0',
     'prompts@^2.4.0',
-    '@types/prompts@^2.4.0',
-  ],
-  gitignore: [
-    'test/read*',
+    '@types/prompts@^2.4.9',
+    'cdk-nag@2.37.55',
   ],
   githubOptions: {
     mergify: false,
@@ -62,10 +61,6 @@ const project = new awscdk.AwsCdkConstructLibrary({
   publishToPypi: {
     distName: 'renovosolutions.aws-cdk-aurora-native-backup',
     module: 'renovosolutions_aurora_native_backup',
-  },
-  publishToNuget: {
-    dotNetNamespace: 'renovosolutions',
-    packageId: 'Renovo.AWSCDK.AuroraNativeBackup',
   },
 });
 

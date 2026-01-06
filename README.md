@@ -85,7 +85,7 @@ For most use cases, use the `AuroraNativeBackupService` which provides a complet
 #### TypeScript
 
 ```typescript
-import { Stack, StackProps, aws_ec2 as ec2, aws_rds as rds, aws_secretsmanager as secretsmanager } from 'aws-cdk-lib';
+import { Stack, StackProps, Duration, aws_ec2 as ec2, aws_rds as rds, aws_scheduler as scheduler, aws_secretsmanager as secretsmanager } from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import { AuroraNativeBackupService, AuroraBackupRepository } from '@renovosolutions/cdk-library-aurora-native-backup';
 
@@ -123,7 +123,7 @@ export class BackupServiceStack extends Stack {
         passwordSecret: backupUserSecret,
       },
       retentionDays: 30,
-      backupSchedule: '0 2 * * *', // Daily at 2 AM UTC
+      backupSchedule: scheduler.ScheduleExpression.cron({ minute: '0', hour: '2' }), // Daily at 2 AM UTC
       cpu: 1024, // Override default of 256
       memoryLimitMiB: 2048, // Override default of 512
     });
@@ -136,8 +136,10 @@ export class BackupServiceStack extends Stack {
 ```python
 from aws_cdk import (
   Stack,
+  Duration,
   aws_ec2 as ec2,
   aws_rds as rds,
+  aws_scheduler as scheduler,
   aws_secretsmanager as secretsmanager
 )
 from constructs import Construct
@@ -177,7 +179,7 @@ class BackupServiceStack(Stack):
         "password_secret": backup_user_secret
       },
       retention_days=30,
-      backup_schedule="0 2 * * *",  # Daily at 2 AM UTC
+      backup_schedule=scheduler.ScheduleExpression.cron(minute='0', hour='2'),  # Daily at 2 AM UTC
       cpu=1024,  # Override default of 256
       memory_limit_mi_b=2048  # Override default of 512
     )

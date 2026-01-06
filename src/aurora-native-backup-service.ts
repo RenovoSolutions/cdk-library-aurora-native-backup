@@ -240,9 +240,6 @@ export class AuroraNativeBackupService extends Construct {
       subnetSelection = { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
     } = props;
 
-    // Generate schedule name and truncate to 64 characters (AWS EventBridge Scheduler limit)
-    const scheduleName = `backup-${dbCluster.clusterIdentifier}`.substring(0, 64);
-
     const containerImage = ecs.ContainerImage.fromEcrRepository(ecrRepository, 'latest');
 
     this.backupSecurityGroup = new ec2.SecurityGroup(this, 'BackupSecurityGroup', {
@@ -614,7 +611,6 @@ export class AuroraNativeBackupService extends Construct {
     this.schedule = new scheduler.Schedule(this, 'BackupSchedule', {
       schedule: backupSchedule,
       timeWindow: props.scheduleTimeWindow ?? scheduler.TimeWindow.flexible(Duration.minutes(60)),
-      scheduleName: scheduleName,
       description: `Daily backup schedule for Aurora cluster ${dbCluster.clusterIdentifier}`,
       target: new scheduler_targets.EcsRunFargateTask(cluster, {
         taskDefinition: this.taskDefinition,
